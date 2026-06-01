@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/config.dart';
 import '../core/api.dart';
-import 'login_screen.dart';
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -12,62 +11,74 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _urlCtrl = TextEditingController();
-  final _tenantCtrl = TextEditingController(text: '1');
+  final _formKey  = GlobalKey<FormState>();
+  final _urlCtrl  = TextEditingController();
 
-  bool _loading = false;
+  bool    _loading   = false;
   String? _statusMsg;
-  bool _statusOk = false;
-
-  // Tezkor sozlama tugmalari
-  static const _presets = [
-    ('Mahalliy (192.168.1.x)', 'http://192.168.1.'),
-    ('Localhost', 'http://localhost:5000'),
-  ];
+  bool    _statusOk  = false;
+  bool    _isCustom  = false;
 
   @override
   void initState() {
     super.initState();
-    _loadSaved();
+    _load();
   }
 
-  Future<void> _loadSaved() async {
-    final url = await AppConfig.getBaseUrl();
-    final tid = await AppConfig.getTenantId();
-    if (url != null) _urlCtrl.text = url;
-    _tenantCtrl.text = tid.toString();
+  Future<void> _load() async {
+    final custom = await AppConfig.isUsingCustomUrl();
+    final url    = await AppConfig.getBaseUrl();
+    setState(() {
+      _isCustom = custom;
+      if (custom) _urlCtrl.text = url;
+    });
   }
 
-  Future<void> _testConnection() async {
+  Future<void> _test() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _statusMsg = null; });
-
-    final tid = int.tryParse(_tenantCtrl.text.trim()) ?? 1;
-    final ok = await Api.testConnection(_urlCtrl.text.trim(), tid);
-
+    final tid = await AppConfig.getTenantId();
+    final ok  = await Api.testConnection(_urlCtrl.text.trim(), tid);
     setState(() {
-      _loading = false;
-      _statusOk = ok;
-      _statusMsg = ok ? 'Ulanish muvaffaqiyatli!' : 'Ulanib bo\'lmadi. URL va port tekshiring.';
+      _loading   = false;
+      _statusOk  = ok;
+      _statusMsg = ok
+          ? 'Ulanish muvaffaqiyatli!'
+          : 'Ulanib bo\'lmadi. IP va port tekshiring.';
     });
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     await AppConfig.setBaseUrl(_urlCtrl.text.trim());
-    await AppConfig.setTenantId(int.tryParse(_tenantCtrl.text.trim()) ?? 1);
-
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-    );
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _resetToDefault() async {
+    await AppConfig.resetToDefault();
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: const BackButton(color: AppColors.textDark),
+        title: const Text('Mahalliy tarmoq',
+            style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: AppColors.textDark)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: AppColors.border),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -76,82 +87,96 @@ class _SetupScreenState extends State<SetupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 32),
-                Row(children: [
-                  Container(
-                    width: 48, height: 48,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.restaurant_menu,
-                        color: Colors.white, size: 26),
+                // Izoh banner
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppColors.primary.withAlpha(60)),
                   ),
-                  const SizedBox(width: 12),
-                  const Text('FoodX',
-                      style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark)),
-                ]),
-                const SizedBox(height: 32),
-                const Text('Server sozlamalari',
-                    style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark)),
-                const SizedBox(height: 8),
-                const Text(
-                    'Markaziy server yoki mahalliy tarmoq manzilini kiriting',
-                    style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
+                  child: const Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline,
+                          color: AppColors.primary, size: 18),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Internet bo\'lmasa, Windows kompyuter bilan bir xil Wi-Fi tarmoqda bo\'lsangiz, '
+                          'kompyuterning IP manziliga to\'g\'ridan-to\'g\'ri ulanish mumkin.',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 24),
 
-                // Tezkor presets
-                Wrap(
-                  spacing: 8,
-                  children: _presets.map((p) => ActionChip(
-                    label: Text(p.$1,
-                        style: const TextStyle(fontSize: 12)),
-                    backgroundColor: AppColors.primaryLight,
-                    onPressed: () => _urlCtrl.text = p.$2,
-                  )).toList(),
-                ),
-                const SizedBox(height: 16),
-
-                _label('Server manzili (URL)'),
+                const Text('Mahalliy server manzili',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMuted)),
                 const SizedBox(height: 6),
                 TextFormField(
                   controller: _urlCtrl,
                   keyboardType: TextInputType.url,
-                  decoration: _inputDec(
-                      'https://server.com yoki http://192.168.1.100:5000'),
+                  decoration: InputDecoration(
+                    hintText: 'http://192.168.1.100:5000',
+                    hintStyle: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 13),
+                    prefixIcon: const Icon(Icons.wifi,
+                        color: AppColors.textMuted, size: 20),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppColors.border)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppColors.border)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(
+                            color: AppColors.primary, width: 1.5)),
+                  ),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) return 'Majburiy maydon';
+                    if (v == null || v.trim().isEmpty) {
+                      return 'IP manzil kiriting';
+                    }
                     if (!v.trim().startsWith('http')) {
-                      return 'http:// yoki https:// bilan boshlang';
+                      return 'http:// bilan boshlang';
                     }
                     return null;
                   },
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 10),
 
-                _label('Tenant ID'),
-                const SizedBox(height: 6),
-                TextFormField(
-                  controller: _tenantCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: _inputDec('1'),
-                  validator: (v) {
-                    if (int.tryParse(v ?? '') == null) return 'Raqam kiriting';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
+                // Tezkor misollar
+                Wrap(spacing: 8, children: [
+                  for (final ip in ['192.168.1', '192.168.0', '10.0.0'])
+                    ActionChip(
+                      label: Text('$ip.x:5000',
+                          style: const TextStyle(fontSize: 11)),
+                      backgroundColor: AppColors.bg,
+                      side: const BorderSide(color: AppColors.border),
+                      onPressed: () =>
+                          _urlCtrl.text = 'http://$ip.',
+                    ),
+                ]),
+                const SizedBox(height: 20),
 
-                if (_statusMsg != null)
+                // Status xabar
+                if (_statusMsg != null) ...[
                   Container(
                     padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
                       color: _statusOk
                           ? AppColors.successLight
@@ -164,8 +189,12 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                     child: Row(children: [
                       Icon(
-                          _statusOk ? Icons.check_circle : Icons.error_outline,
-                          color: _statusOk ? AppColors.success : AppColors.danger,
+                          _statusOk
+                              ? Icons.check_circle
+                              : Icons.error_outline,
+                          color: _statusOk
+                              ? AppColors.success
+                              : AppColors.danger,
                           size: 18),
                       const SizedBox(width: 8),
                       Expanded(
@@ -177,45 +206,74 @@ class _SetupScreenState extends State<SetupScreen> {
                                       : AppColors.danger))),
                     ]),
                   ),
+                  const SizedBox(height: 16),
+                ],
 
+                // Tugmalar
                 Row(children: [
                   Expanded(
-                    child: OutlinedButton(
-                      onPressed: _loading ? null : _testConnection,
+                    child: OutlinedButton.icon(
+                      onPressed: _loading ? null : _test,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.primary,
                         side: const BorderSide(color: AppColors.primary),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                       ),
-                      child: _loading
+                      icon: _loading
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
+                              width: 16,
+                              height: 16,
                               child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: AppColors.primary))
-                          : const Text('Ulanishni tekshirish'),
+                          : const Icon(Icons.network_check, size: 16),
+                      label: const Text('Tekshirish',
+                          style: TextStyle(fontSize: 13)),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton(
+                    child: ElevatedButton.icon(
                       onPressed: _loading ? null : _save,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
                       ),
-                      child: const Text('Saqlash',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      icon: const Icon(Icons.save_outlined, size: 16),
+                      label: const Text('Saqlash',
+                          style: TextStyle(fontWeight: FontWeight.bold,
+                              fontSize: 13)),
                     ),
                   ),
                 ]),
+
+                // Markaziy serverga qaytish (agar custom URL bo'lsa)
+                if (_isCustom) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: _resetToDefault,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.danger,
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      icon: const Icon(Icons.cloud_outlined, size: 16),
+                      label: const Text(
+                          'Markaziy serverga qaytish',
+                          style: TextStyle(fontSize: 13)),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -223,30 +281,4 @@ class _SetupScreenState extends State<SetupScreen> {
       ),
     );
   }
-
-  Widget _label(String text) => Text(text,
-      style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textMuted));
-
-  InputDecoration _inputDec(String hint) => InputDecoration(
-        hintText: hint,
-        hintStyle:
-            const TextStyle(color: AppColors.textMuted, fontSize: 13),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppColors.border)),
-        enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppColors.border)),
-        focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide:
-                const BorderSide(color: AppColors.primary, width: 1.5)),
-      );
 }

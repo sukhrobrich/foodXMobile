@@ -13,28 +13,54 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey = GlobalKey<FormState>();
+  final _formKey   = GlobalKey<FormState>();
+  final _cafeCtrl  = TextEditingController();
   final _loginCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
 
-  bool _loading    = false;
-  bool _obscure    = true;
+  bool    _loading  = false;
+  bool    _obscure  = true;
   String? _error;
+  String? _resolvedCafeName; // kafe topilgandan keyin ko'rsatish uchun
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCafe();
+  }
+
+  Future<void> _loadSavedCafe() async {
+    final code = await AppConfig.getCafeCode();
+    final name = await AppConfig.getCafeName();
+    if (code != null) {
+      _cafeCtrl.text = code;
+      setState(() => _resolvedCafeName = name);
+    }
+  }
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _error = null; });
 
     try {
-      final tid = await AppConfig.getTenantId();
-      final res = await Api.post('auth/login', {
+      // 1-qadam: kafe nomi orqali tenantId topish
+      final cafeRes = await Api.get(
+          'auth/cafe?q=${Uri.encodeComponent(_cafeCtrl.text.trim())}');
+      final tenantId  = cafeRes['tenantId'] as int;
+      final cafeName  = (cafeRes['cafeName'] ?? '').toString();
+
+      // 2-qadam: ofitsiant login + parol bilan kirish
+      final loginRes = await Api.post('auth/login', {
         'login':    _loginCtrl.text.trim(),
         'password': _passCtrl.text,
-        'tenantId': tid,
+        'tenantId': tenantId,
       });
 
-      await AppConfig.setToken(res['token'] as String);
-      final user = res['user'] as Map<String, dynamic>;
+      await AppConfig.setToken(loginRes['token'] as String);
+      await AppConfig.setTenantId(tenantId);
+      await AppConfig.saveCafe(_cafeCtrl.text.trim(), cafeName);
+
+      final user = loginRes['user'] as Map<String, dynamic>;
       await AppConfig.saveUser(
           user['id'] as int,
           (user['name'] ?? '').toString(),
@@ -45,10 +71,10 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (_) => const TablesScreen()),
       );
     } on ApiException catch (e) {
-      setState(() { _error = e.message; });
-      if (e.statusCode == 401) {
-        setState(() => _error = 'Login yoki parol noto\'g\'ri');
-      }
+      setState(() {
+        _error = e.message;
+        if (e.statusCode == 401) _error = 'Login yoki parol noto\'g\'ri';
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -61,41 +87,58 @@ class _LoginScreenState extends State<LoginScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(28),
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
             child: Form(
               key: _formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  const SizedBox(height: 16),
+
                   // Logo
                   Container(
-                    width: 72, height: 72,
+                    width: 76, height: 76,
                     decoration: BoxDecoration(
                       color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withAlpha(60),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
                     ),
                     child: const Icon(Icons.restaurant_menu,
-                        color: Colors.white, size: 38),
+                        color: Colors.white, size: 40),
                   ),
                   const SizedBox(height: 16),
                   const Text('FoodX',
                       style: TextStyle(
-                          fontSize: 26,
+                          fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.textDark)),
+                          color: AppColors.textDark,
+                          letterSpacing: 0.5)),
                   const SizedBox(height: 4),
                   const Text('Ofitsiant ilovasi',
                       style: TextStyle(
                           fontSize: 13, color: AppColors.textMuted)),
-                  const SizedBox(height: 36),
+                  const SizedBox(height: 32),
 
-                  // Card
+                  // Login card
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: AppColors.border),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(8),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,18 +150,58 @@ class _LoginScreenState extends State<LoginScreen> {
                                 color: AppColors.textDark)),
                         const SizedBox(height: 20),
 
+                        // ── Kafe nomi ──────────────────────────────────────
+                        _label('Kafe nomi'),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: _cafeCtrl,
+                          textInputAction: TextInputAction.next,
+                          onChanged: (_) =>
+                              setState(() => _resolvedCafeName = null),
+                          decoration: _inputDec(
+                            'Kafe nomi yoki kodi',
+                            Icons.store_outlined,
+                            suffix: _resolvedCafeName != null
+                                ? Padding(
+                                    padding: const EdgeInsets.only(right: 12),
+                                    child: Row(mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.check_circle,
+                                              color: AppColors.success,
+                                              size: 16),
+                                          const SizedBox(width: 4),
+                                          Text(_resolvedCafeName!,
+                                              style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: AppColors.success,
+                                                  fontWeight:
+                                                      FontWeight.w600)),
+                                        ]),
+                                  )
+                                : null,
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Kafe nomini kiriting'
+                              : null,
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ── Login ──────────────────────────────────────────
                         _label('Login'),
                         const SizedBox(height: 6),
                         TextFormField(
                           controller: _loginCtrl,
-                          keyboardType: TextInputType.text,
                           textInputAction: TextInputAction.next,
-                          decoration: _inputDec('login', Icons.person_outline),
+                          decoration:
+                              _inputDec('login', Icons.person_outline),
                           validator: (v) =>
-                              (v == null || v.trim().isEmpty) ? 'Login kiriting' : null,
+                              (v == null || v.trim().isEmpty)
+                                  ? 'Login kiriting'
+                                  : null,
                         ),
                         const SizedBox(height: 16),
 
+                        // ── Parol ──────────────────────────────────────────
                         _label('Parol'),
                         const SizedBox(height: 6),
                         TextFormField(
@@ -126,29 +209,37 @@ class _LoginScreenState extends State<LoginScreen> {
                           obscureText: _obscure,
                           textInputAction: TextInputAction.done,
                           onFieldSubmitted: (_) => _login(),
-                          decoration: _inputDec('parol', Icons.lock_outline,
-                              suffix: IconButton(
-                                icon: Icon(
-                                    _obscure
-                                        ? Icons.visibility_off_outlined
-                                        : Icons.visibility_outlined,
-                                    color: AppColors.textMuted,
-                                    size: 20),
-                                onPressed: () =>
-                                    setState(() => _obscure = !_obscure),
-                              )),
+                          decoration: _inputDec(
+                            'parol',
+                            Icons.lock_outline,
+                            suffix: IconButton(
+                              icon: Icon(
+                                  _obscure
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  color: AppColors.textMuted,
+                                  size: 20),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
                           validator: (v) =>
-                              (v == null || v.isEmpty) ? 'Parol kiriting' : null,
+                              (v == null || v.isEmpty)
+                                  ? 'Parol kiriting'
+                                  : null,
                         ),
                         const SizedBox(height: 20),
 
+                        // ── Xatolik ────────────────────────────────────────
                         if (_error != null) ...[
                           Container(
-                            padding: const EdgeInsets.all(10),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
                             decoration: BoxDecoration(
                               color: AppColors.dangerLight,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.danger),
+                              border:
+                                  Border.all(color: AppColors.danger.withAlpha(80)),
                             ),
                             child: Row(children: [
                               const Icon(Icons.error_outline,
@@ -164,16 +255,19 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: 16),
                         ],
 
+                        // ── Kirish tugmasi ─────────────────────────────────
                         SizedBox(
                           width: double.infinity,
-                          height: 48,
+                          height: 50,
                           child: ElevatedButton(
                             onPressed: _loading ? null : _login,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor:
+                                  AppColors.primary.withAlpha(120),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
+                                  borderRadius: BorderRadius.circular(12)),
                               elevation: 0,
                             ),
                             child: _loading
@@ -181,7 +275,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                     width: 22,
                                     height: 22,
                                     child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2))
+                                        color: Colors.white,
+                                        strokeWidth: 2))
                                 : const Text('Kirish',
                                     style: TextStyle(
                                         fontSize: 15,
@@ -191,18 +286,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       ],
                     ),
                   ),
+
                   const SizedBox(height: 20),
 
-                  TextButton.icon(
-                    onPressed: () => Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(builder: (_) => const SetupScreen()),
-                    ),
-                    icon: const Icon(Icons.settings_outlined,
-                        size: 16, color: AppColors.textMuted),
-                    label: const Text('Server sozlamalari',
-                        style: TextStyle(
-                            fontSize: 13, color: AppColors.textMuted)),
-                  ),
+                  // Mahalliy tarmoq / sozlamalar
+                  _LocalNetworkTile(),
+                  const SizedBox(height: 16),
                 ],
               ),
             ),
@@ -247,4 +336,78 @@ class _LoginScreenState extends State<LoginScreen> {
             borderSide:
                 const BorderSide(color: AppColors.danger, width: 1.5)),
       );
+}
+
+// ── Mahalliy tarmoq tugmasi ───────────────────────────────────────────────────
+
+class _LocalNetworkTile extends StatefulWidget {
+  @override
+  State<_LocalNetworkTile> createState() => _LocalNetworkTileState();
+}
+
+class _LocalNetworkTileState extends State<_LocalNetworkTile> {
+  bool _custom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AppConfig.isUsingCustomUrl().then((v) => setState(() => _custom = v));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () async {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const SetupScreen()),
+        );
+        final v = await AppConfig.isUsingCustomUrl();
+        setState(() => _custom = v);
+      },
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: _custom ? AppColors.primaryLight : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: _custom ? AppColors.primary : AppColors.border),
+        ),
+        child: Row(children: [
+          Icon(
+              _custom
+                  ? Icons.wifi
+                  : Icons.settings_outlined,
+              color: _custom ? AppColors.primary : AppColors.textMuted,
+              size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                    _custom
+                        ? 'Mahalliy tarmoq rejimi'
+                        : 'Mahalliy tarmoqqa ulashish',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _custom
+                            ? AppColors.primary
+                            : AppColors.textDark)),
+                Text(
+                    _custom
+                        ? 'Sozlash uchun bosing'
+                        : 'Internet bo\'lmasa, Wi-Fi orqali ulanish',
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textMuted)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right,
+              color: AppColors.textMuted, size: 18),
+        ]),
+      ),
+    );
+  }
 }

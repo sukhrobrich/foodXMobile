@@ -5,7 +5,6 @@ import '../core/api.dart';
 import '../models/place.dart';
 import 'login_screen.dart';
 import 'menu_screen.dart';
-import 'setup_screen.dart';
 
 class TablesScreen extends StatefulWidget {
   const TablesScreen({super.key});
@@ -19,6 +18,7 @@ class _TablesScreenState extends State<TablesScreen> {
   List<String> _zones  = [];
   String? _selectedZone;
   String _userName     = '';
+  String _cafeName     = '';
   bool _loading        = true;
   String? _error;
 
@@ -30,6 +30,7 @@ class _TablesScreenState extends State<TablesScreen> {
 
   Future<void> _init() async {
     _userName = (await AppConfig.getUserName()) ?? '';
+    _cafeName = (await AppConfig.getCafeName()) ?? '';
     setState(() {});
     _load();
   }
@@ -83,11 +84,20 @@ class _TablesScreenState extends State<TablesScreen> {
                 color: Colors.white, size: 18),
           ),
           const SizedBox(width: 10),
-          const Text('FoodX',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                  color: AppColors.textDark)),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_cafeName.isNotEmpty ? _cafeName : 'FoodX',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: AppColors.textDark)),
+              if (_cafeName.isNotEmpty)
+                const Text('Stollar',
+                    style: TextStyle(
+                        fontSize: 11, color: AppColors.textMuted)),
+            ],
+          ),
         ]),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -113,16 +123,6 @@ class _TablesScreenState extends State<TablesScreen> {
                 ),
               ),
             ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined,
-                color: AppColors.textMuted, size: 22),
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SetupScreen()),
-              );
-              _load();
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.logout,
                 color: AppColors.textMuted, size: 22),

@@ -20,11 +20,7 @@ class Api {
     };
   }
 
-  static Future<String> _base() async {
-    final url = await AppConfig.getBaseUrl();
-    if (url == null || url.isEmpty) throw ApiException('Server sozlanmagan');
-    return url;
-  }
+  static Future<String> _base() async => await AppConfig.getBaseUrl();
 
   static Future<dynamic> get(String path) async {
     try {

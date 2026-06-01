@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/config.dart';
-import 'setup_screen.dart';
 import 'login_screen.dart';
 import 'tables_screen.dart';
 
@@ -23,17 +22,8 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
 
-    final configured = await AppConfig.isConfigured();
-    if (!configured) {
-      _go(const SetupScreen());
-      return;
-    }
     final loggedIn = await AppConfig.isLoggedIn();
-    if (!loggedIn) {
-      _go(const LoginScreen());
-      return;
-    }
-    _go(const TablesScreen());
+    _go(loggedIn ? const TablesScreen() : const LoginScreen());
   }
 
   void _go(Widget screen) {
