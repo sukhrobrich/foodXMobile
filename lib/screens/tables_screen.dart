@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/config.dart';
@@ -15,7 +16,7 @@ class TablesScreen extends StatefulWidget {
 }
 
 class _TablesScreenState extends State<TablesScreen> {
-  int _navIndex = 0; // 0=stollar, 1=buyurtmalarim
+  int _navIndex = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +36,6 @@ class _TablesScreenState extends State<TablesScreen> {
           currentIndex: _navIndex,
           onTap: (i) {
             setState(() => _navIndex = i);
-            // Buyurtmalarim tabiga o'tganda yangilash
             if (i == 1) MyOrdersScreen.refreshIfMounted();
           },
           selectedItemColor: AppColors.primary,
@@ -72,9 +72,9 @@ class _TablesTab extends StatefulWidget {
   State<_TablesTab> createState() => _TablesTabState();
 }
 
-class _TablesTabState extends State<_TablesTab> {
-  List<Place> _places = [];
-  List<String> _zones = [];
+class _TablesTabState extends State<_TablesTab> with WidgetsBindingObserver {
+  List<Place> _places     = [];
+  List<String> _zones     = [];
   String? _selectedZone;
 
   String _userName = '';
@@ -82,13 +82,32 @@ class _TablesTabState extends State<_TablesTab> {
   String _userRole = '';
   int    _userId   = 0;
 
-  bool   _loading = true;
+  bool   _loading    = true;   // birinchi yuklash
+  bool   _refreshing = false;  // background refresh
   String? _error;
+
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) _silentRefresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) _silentRefresh();
   }
 
   Future<void> _init() async {
@@ -100,8 +119,22 @@ class _TablesTabState extends State<_TablesTab> {
     _load();
   }
 
+  // Birinchi/xato holat uchun — loading spinner ko'rsatadi
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
+    await _fetch();
+    if (mounted) setState(() => _loading = false);
+  }
+
+  // Background yangilash — UI bloklanmaydi
+  Future<void> _silentRefresh() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    await _fetch();
+    if (mounted) setState(() => _refreshing = false);
+  }
+
+  Future<void> _fetch() async {
     try {
       final data = await Api.get('places') as List;
       final places = data
@@ -113,13 +146,17 @@ class _TablesTabState extends State<_TablesTab> {
           .toSet()
           .toList()
         ..sort();
-      setState(() {
-        _places  = places;
-        _zones   = zones;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _places = places;
+          _zones  = zones;
+          _error  = null;
+        });
+      }
     } on ApiException catch (e) {
-      setState(() { _error = e.message; _loading = false; });
+      if (mounted && _places.isEmpty) {
+        setState(() => _error = e.message);
+      }
       if (e.statusCode == 401) _doLogout();
     }
   }
@@ -132,7 +169,6 @@ class _TablesTabState extends State<_TablesTab> {
     );
   }
 
-  // Ofitsiant boshqa birovning stolini ocha olmaydi
   bool _canOpen(Place place) {
     if (place.empty) return true;
     if (_userRole == 'admin' || _userRole == 'kassir') return true;
@@ -175,8 +211,7 @@ class _TablesTabState extends State<_TablesTab> {
                       color: AppColors.textDark)),
               if (_cafeName.isNotEmpty)
                 const Text('Stollar',
-                    style: TextStyle(
-                        fontSize: 11, color: AppColors.textMuted)),
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
             ],
           ),
         ]),
@@ -185,6 +220,18 @@ class _TablesTabState extends State<_TablesTab> {
           child: Container(height: 1, color: AppColors.border),
         ),
         actions: [
+          // Avtomatik yangilash indikatori
+          if (_refreshing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: Center(
+                child: SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.primary),
+                ),
+              ),
+            ),
           if (_userName.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -215,7 +262,6 @@ class _TablesTabState extends State<_TablesTab> {
       ),
       body: Column(
         children: [
-          // Zone filtri
           if (_zones.length > 1)
             Container(
               color: Colors.white,
@@ -231,13 +277,12 @@ class _TablesTabState extends State<_TablesTab> {
                 ),
               ),
             ),
-
           Expanded(
             child: _loading
                 ? const Center(
                     child: CircularProgressIndicator(
                         color: AppColors.primary))
-                : _error != null
+                : _error != null && _places.isEmpty
                     ? _buildError()
                     : _filtered.isEmpty
                         ? _buildEmpty()
@@ -268,12 +313,6 @@ class _TablesTabState extends State<_TablesTab> {
                           ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        onPressed: _load,
-        mini: true,
-        child: const Icon(Icons.refresh, color: Colors.white),
       ),
     );
   }
@@ -320,8 +359,7 @@ class _TablesTabState extends State<_TablesTab> {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.wifi_off,
-                size: 48, color: AppColors.textMuted),
+            const Icon(Icons.wifi_off, size: 48, color: AppColors.textMuted),
             const SizedBox(height: 12),
             Text(_error!,
                 textAlign: TextAlign.center,
@@ -352,7 +390,7 @@ class _TablesTabState extends State<_TablesTab> {
   void _openMenu(Place place) async {
     await Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => MenuScreen(place: place)));
-    _load();
+    _silentRefresh();
   }
 }
 
@@ -368,10 +406,9 @@ class _TableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final busy    = !place.empty;
-    final locked  = busy && !canOpen;
+    final busy   = !place.empty;
+    final locked = busy && !canOpen;
 
-    // Rang logikasi
     final Color borderColor;
     final Color iconColor;
     final Color bgColor;
@@ -398,8 +435,7 @@ class _TableCard extends StatelessWidget {
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-              color: borderColor,
-              width: (busy && canOpen) ? 2 : 1),
+              color: borderColor, width: (busy && canOpen) ? 2 : 1),
           boxShadow: [
             BoxShadow(
               color: borderColor.withAlpha(25),
@@ -410,7 +446,6 @@ class _TableCard extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            // Kontent
             Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
@@ -463,7 +498,6 @@ class _TableCard extends StatelessWidget {
                     const Text('Bo\'sh',
                         style: TextStyle(
                             fontSize: 11, color: AppColors.success)),
-
                   if (place.zone.isNotEmpty)
                     Text(place.zone,
                         style: const TextStyle(
@@ -473,8 +507,6 @@ class _TableCard extends StatelessWidget {
                 ],
               ),
             ),
-
-            // Qulf belgisi (locked bo'lsa)
             if (locked)
               Positioned(
                 top: 8, right: 8,

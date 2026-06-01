@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/api.dart';
@@ -5,6 +6,7 @@ import '../models/place.dart';
 import '../models/food.dart';
 import '../models/food_category.dart';
 import '../models/order_item.dart';
+import 'receipt_dialog.dart';
 
 class MenuScreen extends StatefulWidget {
   final Place place;
@@ -14,22 +16,44 @@ class MenuScreen extends StatefulWidget {
   State<MenuScreen> createState() => _MenuScreenState();
 }
 
-class _MenuScreenState extends State<MenuScreen> {
+class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   List<FoodCategory> _categories   = [];
   List<Food>         _foods        = [];
   List<OrderItem>    _order        = [];
   int?               _selectedCat;
   int?               _existingOrderId;
 
-  bool   _loading = true;
-  bool   _saving  = false;
+  bool    _loading    = true;
+  bool    _refreshing = false;
+  bool    _saving     = false;
   String? _error;
-  String  _search = '';
+  String  _search     = '';
+
+  Timer?  _timer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    // Har 30 soniyada mavjud buyurtma itemlarini yangilaydi
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && _existingOrderId != null) _refreshOrderItems();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      if (_existingOrderId != null) _refreshOrderItems();
+    }
   }
 
   Future<void> _load() async {
@@ -38,23 +62,16 @@ class _MenuScreenState extends State<MenuScreen> {
       final catData  = await Api.get('foods/categories') as List;
       final foodData = await Api.get('foods') as List;
 
-      final cats  = catData.map((j) => FoodCategory.fromJson(j as Map<String, dynamic>)).toList();
-      final foods = foodData.map((j) => Food.fromJson(j as Map<String, dynamic>)).toList();
+      final cats  = catData
+          .map((j) => FoodCategory.fromJson(j as Map<String, dynamic>))
+          .toList();
+      final foods = foodData
+          .map((j) => Food.fromJson(j as Map<String, dynamic>))
+          .toList();
 
-      // Aktiv buyurtma bormi?
       if (widget.place.activeOrderId != null) {
         _existingOrderId = widget.place.activeOrderId;
-        final orderData = await Api.get('orders/${widget.place.activeOrderId}');
-        final items = (orderData['items'] as List?) ?? [];
-        _order = items.map((i) {
-          final m = i as Map<String, dynamic>;
-          return OrderItem(
-            foodId: m['food_id'] as int,
-            foodName: (m['food_name'] ?? '').toString(),
-            price: (m['selling_price'] ?? 0).toDouble(),
-            quantity: (m['quantity'] as num).toInt(),
-          );
-        }).toList();
+        await _fetchOrderItems();
       }
 
       setState(() {
@@ -65,6 +82,35 @@ class _MenuScreenState extends State<MenuScreen> {
     } on ApiException catch (e) {
       setState(() { _error = e.message; _loading = false; });
     }
+  }
+
+  // Faqat mavjud buyurtma itemlarini yangilaydi (foods ni qayta yuklamaydi)
+  Future<void> _refreshOrderItems() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    await _fetchOrderItems();
+    if (mounted) setState(() => _refreshing = false);
+  }
+
+  Future<void> _fetchOrderItems() async {
+    if (_existingOrderId == null) return;
+    try {
+      final orderData = await Api.get('orders/$_existingOrderId');
+      final items = (orderData['items'] as List?) ?? [];
+      if (mounted) {
+        setState(() {
+          _order = items.map((i) {
+            final m = i as Map<String, dynamic>;
+            return OrderItem(
+              foodId:   m['food_id'] as int,
+              foodName: (m['food_name'] ?? '').toString(),
+              price:    (m['selling_price'] ?? 0).toDouble(),
+              quantity: (m['quantity'] as num).toInt(),
+            );
+          }).toList();
+        });
+      }
+    } catch (_) {}
   }
 
   List<Food> get _filtered {
@@ -80,8 +126,10 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 
   int _qty(Food food) {
-    final item = _order.where((i) => i.foodId == food.id).firstOrNull;
-    return item?.quantity ?? 0;
+    return _order
+        .where((i) => i.foodId == food.id)
+        .firstOrNull
+        ?.quantity ?? 0;
   }
 
   void _increment(Food food) {
@@ -113,26 +161,21 @@ class _MenuScreenState extends State<MenuScreen> {
     });
   }
 
-  double get _total =>
-      _order.fold(0.0, (s, i) => s + i.subtotal);
-
-  int get _totalItems =>
-      _order.fold(0, (s, i) => s + i.quantity);
+  double get _total  => _order.fold(0.0, (s, i) => s + i.subtotal);
+  int    get _total2 => _order.fold(0, (s, i) => s + i.quantity);
 
   Future<void> _saveOrder() async {
     if (_order.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hech bir taom tanlanmagan')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Hech bir taom tanlanmagan')));
       return;
     }
-
-    final confirmed = await _confirm();
-    if (!confirmed) return;
+    final ok = await _confirm();
+    if (!ok) return;
 
     setState(() => _saving = true);
     try {
       final items = _order.map((i) => i.toJson()).toList();
-
       if (_existingOrderId != null) {
         await Api.put('orders/$_existingOrderId/items', {'items': items});
       } else {
@@ -142,20 +185,18 @@ class _MenuScreenState extends State<MenuScreen> {
         });
         _existingOrderId = res['id'] as int?;
       }
-
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Buyurtma saqlandi!'),
-          backgroundColor: AppColors.success,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Buyurtma saqlandi!'),
+        backgroundColor: AppColors.success,
+        duration: Duration(seconds: 2),
+      ));
       Navigator.of(context).pop();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message), backgroundColor: AppColors.danger));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e.message),
+          backgroundColor: AppColors.danger));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -165,10 +206,11 @@ class _MenuScreenState extends State<MenuScreen> {
     return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16)),
             title: const Text('Buyurtmani saqlash',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16)),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -230,6 +272,17 @@ class _MenuScreenState extends State<MenuScreen> {
         false;
   }
 
+  void _showReceipt() {
+    if (_existingOrderId == null && _order.isEmpty) return;
+    ReceiptDialog.show(
+      context,
+      placeName: widget.place.name,
+      orderId:   _existingOrderId,
+      items:     List.from(_order),
+      total:     _total,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -257,12 +310,32 @@ class _MenuScreenState extends State<MenuScreen> {
           child: Container(height: 1, color: AppColors.border),
         ),
         actions: [
+          // Auto-refresh indikatori
+          if (_refreshing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Center(
+                child: SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.primary),
+                ),
+              ),
+            ),
+          // Shot chiqarish
+          if (_existingOrderId != null || _order.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.receipt_outlined,
+                  color: AppColors.textDark, size: 22),
+              tooltip: 'Shot ko\'rish',
+              onPressed: _showReceipt,
+            ),
           if (_existingOrderId != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppColors.primaryLight,
                   borderRadius: BorderRadius.circular(20),
@@ -281,79 +354,70 @@ class _MenuScreenState extends State<MenuScreen> {
               child: CircularProgressIndicator(color: AppColors.primary))
           : _error != null
               ? _buildError()
-              : Column(
-                  children: [
-                    // Qidiruv
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                      child: TextField(
-                        onChanged: (v) => setState(() => _search = v),
-                        decoration: InputDecoration(
-                          hintText: 'Taom qidirish...',
-                          hintStyle: const TextStyle(
-                              color: AppColors.textMuted, fontSize: 13),
-                          prefixIcon: const Icon(Icons.search,
-                              color: AppColors.textMuted, size: 20),
-                          filled: true,
-                          fillColor: Colors.white,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide:
-                                  const BorderSide(color: AppColors.border)),
-                          enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide:
-                                  const BorderSide(color: AppColors.border)),
-                          focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                  color: AppColors.primary, width: 1.5)),
-                        ),
+              : Column(children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: TextField(
+                      onChanged: (v) => setState(() => _search = v),
+                      decoration: InputDecoration(
+                        hintText: 'Taom qidirish...',
+                        hintStyle: const TextStyle(
+                            color: AppColors.textMuted, fontSize: 13),
+                        prefixIcon: const Icon(Icons.search,
+                            color: AppColors.textMuted, size: 20),
+                        filled: true,
+                        fillColor: Colors.white,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                                color: AppColors.border)),
+                        enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                                color: AppColors.border)),
+                        focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                                color: AppColors.primary, width: 1.5)),
                       ),
                     ),
-
-                    // Kategoriyalar
-                    if (_categories.isNotEmpty)
-                      SizedBox(
-                        height: 44,
-                        child: ListView(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 6),
-                          children: [
-                            _catChip('Barchasi', null),
-                            ..._categories
-                                .map((c) => _catChip(c.name, c.id)),
-                          ],
-                        ),
+                  ),
+                  if (_categories.isNotEmpty)
+                    SizedBox(
+                      height: 44,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 6),
+                        children: [
+                          _catChip('Barchasi', null),
+                          ..._categories
+                              .map((c) => _catChip(c.name, c.id)),
+                        ],
                       ),
-
-                    // Taomlar ro'yxati
-                    Expanded(
-                      child: _filtered.isEmpty
-                          ? const Center(
-                              child: Text('Taomlar topilmadi',
-                                  style:
-                                      TextStyle(color: AppColors.textMuted)))
-                          : ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                              itemCount: _filtered.length,
-                              itemBuilder: (ctx, i) =>
-                                  _FoodRow(
-                                    food: _filtered[i],
-                                    qty: _qty(_filtered[i]),
-                                    onAdd: () => _increment(_filtered[i]),
-                                    onRemove: () => _decrement(_filtered[i]),
-                                  ),
+                    ),
+                  Expanded(
+                    child: _filtered.isEmpty
+                        ? const Center(
+                            child: Text('Taomlar topilmadi',
+                                style: TextStyle(
+                                    color: AppColors.textMuted)))
+                        : ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(
+                                16, 8, 16, 100),
+                            itemCount: _filtered.length,
+                            itemBuilder: (ctx, i) => _FoodRow(
+                              food:     _filtered[i],
+                              qty:      _qty(_filtered[i]),
+                              onAdd:    () => _increment(_filtered[i]),
+                              onRemove: () => _decrement(_filtered[i]),
                             ),
-                    ),
-                  ],
-                ),
-
-      // Pastki buyurtma paneli
-      bottomNavigationBar: _totalItems == 0
+                          ),
+                  ),
+                ]),
+      bottomNavigationBar: _total2 == 0
           ? null
           : Container(
               decoration: const BoxDecoration(
@@ -364,14 +428,34 @@ class _MenuScreenState extends State<MenuScreen> {
               child: SafeArea(
                 top: false,
                 child: Row(children: [
+                  // Shot tugmasi
+                  Container(
+                    height: 48,
+                    margin: const EdgeInsets.only(right: 10),
+                    child: OutlinedButton.icon(
+                      onPressed: _showReceipt,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textDark,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                      ),
+                      icon: const Icon(Icons.receipt_outlined, size: 18),
+                      label: const Text('Shot',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 13)),
+                    ),
+                  ),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('$_totalItems ta taom',
+                        Text('$_total2 ta taom',
                             style: const TextStyle(
-                                fontSize: 12, color: AppColors.textMuted)),
+                                fontSize: 12,
+                                color: AppColors.textMuted)),
                         Text('${_total.toStringAsFixed(0)} so\'m',
                             style: const TextStyle(
                                 fontSize: 18,
@@ -390,18 +474,20 @@ class _MenuScreenState extends State<MenuScreen> {
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12)),
                         elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24),
                       ),
                       icon: _saving
                           ? const SizedBox(
-                              width: 18,
-                              height: 18,
+                              width: 18, height: 18,
                               child: CircularProgressIndicator(
                                   color: Colors.white, strokeWidth: 2))
                           : const Icon(Icons.check, size: 20),
-                      label: Text(_saving ? 'Saqlanmoqda...' : 'Saqlash',
+                      label: Text(
+                          _saving ? 'Saqlanmoqda...' : 'Saqlash',
                           style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 15)),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15)),
                     ),
                   ),
                 ]),
@@ -411,7 +497,7 @@ class _MenuScreenState extends State<MenuScreen> {
   }
 
   Widget _catChip(String label, int? id) {
-    final selected = _selectedCat == id;
+    final sel = _selectedCat == id;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: GestureDetector(
@@ -420,18 +506,16 @@ class _MenuScreenState extends State<MenuScreen> {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
           decoration: BoxDecoration(
-            color: selected ? AppColors.primary : Colors.white,
+            color: sel ? AppColors.primary : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-                color: selected ? AppColors.primary : AppColors.border),
+                color: sel ? AppColors.primary : AppColors.border),
           ),
           child: Text(label,
               style: TextStyle(
                   fontSize: 12,
-                  fontWeight:
-                      selected ? FontWeight.bold : FontWeight.normal,
-                  color:
-                      selected ? Colors.white : AppColors.textMuted)),
+                  fontWeight: sel ? FontWeight.bold : FontWeight.normal,
+                  color: sel ? Colors.white : AppColors.textMuted)),
         ),
       ),
     );
@@ -461,7 +545,7 @@ class _MenuScreenState extends State<MenuScreen> {
       );
 }
 
-// ── Taom qatori ──────────────────────────────────────────────────────────────
+// ── Taom qatori ───────────────────────────────────────────────────────────────
 
 class _FoodRow extends StatelessWidget {
   final Food food;
@@ -491,10 +575,8 @@ class _FoodRow extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(children: [
-          // Taom initials
           Container(
-            width: 40,
-            height: 40,
+            width: 40, height: 40,
             decoration: BoxDecoration(
               color: inOrder
                   ? AppColors.primary.withAlpha(20)
@@ -503,9 +585,7 @@ class _FoodRow extends StatelessWidget {
             ),
             child: Center(
               child: Text(
-                food.name.isNotEmpty
-                    ? food.name[0].toUpperCase()
-                    : '?',
+                food.name.isNotEmpty ? food.name[0].toUpperCase() : '?',
                 style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
@@ -516,19 +596,15 @@ class _FoodRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-
-          // Nomi va narx
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(food.name,
-                    style: TextStyle(
+                    style: const TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
-                        color: inOrder
-                            ? AppColors.textDark
-                            : AppColors.textDark),
+                        color: AppColors.textDark),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 2),
@@ -544,13 +620,8 @@ class _FoodRow extends StatelessWidget {
               ],
             ),
           ),
-
-          // Miqdor kontroli
           if (qty > 0) ...[
-            _QtyButton(
-                icon: Icons.remove,
-                onTap: onRemove,
-                color: AppColors.danger),
+            _QtyBtn(icon: Icons.remove, onTap: onRemove, color: AppColors.danger),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Text('$qty',
@@ -560,38 +631,31 @@ class _FoodRow extends StatelessWidget {
                       color: AppColors.textDark)),
             ),
           ],
-          _QtyButton(
-              icon: Icons.add,
-              onTap: onAdd,
-              color: AppColors.primary),
+          _QtyBtn(icon: Icons.add, onTap: onAdd, color: AppColors.primary),
         ]),
       ),
     );
   }
 }
 
-class _QtyButton extends StatelessWidget {
+class _QtyBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final Color color;
 
-  const _QtyButton(
-      {required this.icon, required this.onTap, required this.color});
+  const _QtyBtn({required this.icon, required this.onTap, required this.color});
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          color: color.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withAlpha(60)),
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 32, height: 32,
+          decoration: BoxDecoration(
+            color: color.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withAlpha(60)),
+          ),
+          child: Icon(icon, size: 18, color: color),
         ),
-        child: Icon(icon, size: 18, color: color),
-      ),
-    );
-  }
+      );
 }
