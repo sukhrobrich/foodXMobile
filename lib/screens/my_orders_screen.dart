@@ -8,8 +8,8 @@ class MyOrdersScreen extends StatefulWidget {
   const MyOrdersScreen({super.key});
 
   // TablesScreen bu metodni chaqiradi (tab o'zgarganda refresh)
-  static final _key = GlobalKey<_MyOrdersScreenState>();
-  static void refreshIfMounted() => _key.currentState?._load();
+  static final instanceKey = GlobalKey<_MyOrdersScreenState>();
+  static void refreshIfMounted() => instanceKey.currentState?._load();
 
   @override
   State<MyOrdersScreen> createState() => _MyOrdersScreenState();

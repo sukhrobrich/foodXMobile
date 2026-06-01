@@ -24,7 +24,7 @@ class _TablesScreenState extends State<TablesScreen> {
         index: _navIndex,
         children: [
           const _TablesTab(),
-          MyOrdersScreen(key: MyOrdersScreen._key),
+          MyOrdersScreen(key: MyOrdersScreen.instanceKey),
         ],
       ),
       bottomNavigationBar: Container(
