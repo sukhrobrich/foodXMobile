@@ -1,8 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppConfig {
-  // Markaziy server manzili — o'zgartirmang (setup ekranida override qilish mumkin)
-  static const centralUrl = 'http://192.168.35.230:5000';
+  // Markaziy server manzili — nginx port 80 orqali
+  static const centralUrl = 'http://192.168.35.230';
 
   static const _keyBaseUrl   = 'base_url';
   static const _keyTenantId  = 'tenant_id';
