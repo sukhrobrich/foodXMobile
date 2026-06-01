@@ -5,6 +5,7 @@ import '../core/api.dart';
 import '../models/place.dart';
 import 'login_screen.dart';
 import 'menu_screen.dart';
+import 'my_orders_screen.dart';
 
 class TablesScreen extends StatefulWidget {
   const TablesScreen({super.key});
@@ -14,12 +15,70 @@ class TablesScreen extends StatefulWidget {
 }
 
 class _TablesScreenState extends State<TablesScreen> {
-  List<Place> _places  = [];
-  List<String> _zones  = [];
+  int _navIndex = 0; // 0=stollar, 1=buyurtmalarim
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _navIndex,
+        children: const [
+          _TablesTab(),
+          MyOrdersScreen(),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _navIndex,
+          onTap: (i) => setState(() => _navIndex = i),
+          selectedItemColor: AppColors.primary,
+          unselectedItemColor: AppColors.textMuted,
+          backgroundColor: Colors.white,
+          elevation: 0,
+          selectedLabelStyle:
+              const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+          unselectedLabelStyle: const TextStyle(fontSize: 12),
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.table_restaurant_outlined),
+              activeIcon: Icon(Icons.table_restaurant),
+              label: 'Stollar',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.receipt_long_outlined),
+              activeIcon: Icon(Icons.receipt_long),
+              label: 'Buyurtmalarim',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Stollar tab ───────────────────────────────────────────────────────────────
+
+class _TablesTab extends StatefulWidget {
+  const _TablesTab();
+
+  @override
+  State<_TablesTab> createState() => _TablesTabState();
+}
+
+class _TablesTabState extends State<_TablesTab> {
+  List<Place> _places = [];
+  List<String> _zones = [];
   String? _selectedZone;
-  String _userName     = '';
-  String _cafeName     = '';
-  bool _loading        = true;
+
+  String _userName = '';
+  String _cafeName = '';
+  String _userRole = '';
+  int    _userId   = 0;
+
+  bool   _loading = true;
   String? _error;
 
   @override
@@ -31,6 +90,8 @@ class _TablesScreenState extends State<TablesScreen> {
   Future<void> _init() async {
     _userName = (await AppConfig.getUserName()) ?? '';
     _cafeName = (await AppConfig.getCafeName()) ?? '';
+    _userRole = (await AppConfig.getUserRole()) ?? '';
+    _userId   = await AppConfig.getUserId();
     setState(() {});
     _load();
   }
@@ -39,8 +100,15 @@ class _TablesScreenState extends State<TablesScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final data = await Api.get('places') as List;
-      final places = data.map((j) => Place.fromJson(j as Map<String, dynamic>)).toList();
-      final zones = places.map((p) => p.zone).where((z) => z.isNotEmpty).toSet().toList()..sort();
+      final places = data
+          .map((j) => Place.fromJson(j as Map<String, dynamic>))
+          .toList();
+      final zones = places
+          .map((p) => p.zone)
+          .where((z) => z.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
       setState(() {
         _places  = places;
         _zones   = zones;
@@ -58,6 +126,14 @@ class _TablesScreenState extends State<TablesScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
+  }
+
+  // Ofitsiant boshqa birovning stolini ocha olmaydi
+  bool _canOpen(Place place) {
+    if (place.empty) return true;
+    if (_userRole == 'admin' || _userRole == 'kassir') return true;
+    return place.activeOrderUserId == null ||
+        place.activeOrderUserId == _userId;
   }
 
   List<Place> get _filtered {
@@ -87,7 +163,8 @@ class _TablesScreenState extends State<TablesScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_cafeName.isNotEmpty ? _cafeName : 'FoodX',
+              Text(
+                  _cafeName.isNotEmpty ? _cafeName : 'FoodX',
                   style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
@@ -109,8 +186,8 @@ class _TablesScreenState extends State<TablesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(20),
@@ -138,7 +215,8 @@ class _TablesScreenState extends State<TablesScreen> {
           if (_zones.length > 1)
             Container(
               color: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 10),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -150,11 +228,11 @@ class _TablesScreenState extends State<TablesScreen> {
               ),
             ),
 
-          // Content
           Expanded(
             child: _loading
                 ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary))
+                    child: CircularProgressIndicator(
+                        color: AppColors.primary))
                 : _error != null
                     ? _buildError()
                     : _filtered.isEmpty
@@ -169,11 +247,19 @@ class _TablesScreenState extends State<TablesScreen> {
                                 crossAxisCount: 2,
                                 mainAxisSpacing: 12,
                                 crossAxisSpacing: 12,
-                                childAspectRatio: 1.15,
+                                childAspectRatio: 1.05,
                               ),
                               itemCount: _filtered.length,
-                              itemBuilder: (ctx, i) =>
-                                  _TableCard(place: _filtered[i], onTap: () => _openMenu(_filtered[i])),
+                              itemBuilder: (ctx, i) {
+                                final p = _filtered[i];
+                                return _TableCard(
+                                  place: p,
+                                  canOpen: _canOpen(p),
+                                  onTap: () => _canOpen(p)
+                                      ? _openMenu(p)
+                                      : _showLockedMsg(p),
+                                );
+                              },
                             ),
                           ),
           ),
@@ -186,6 +272,17 @@ class _TablesScreenState extends State<TablesScreen> {
         child: const Icon(Icons.refresh, color: Colors.white),
       ),
     );
+  }
+
+  void _showLockedMsg(Place p) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+          '🔒 Bu stol "${p.activeOrderUserName.isNotEmpty ? p.activeOrderUserName : 'boshqa ofitsiant'}" tomonidan ochildi'),
+      backgroundColor: AppColors.textDark,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      duration: const Duration(seconds: 3),
+    ));
   }
 
   Widget _zoneChip(String label, String? zone) {
@@ -219,9 +316,11 @@ class _TablesScreenState extends State<TablesScreen> {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.wifi_off, size: 48, color: AppColors.textMuted),
+            const Icon(Icons.wifi_off,
+                size: 48, color: AppColors.textMuted),
             const SizedBox(height: 12),
-            Text(_error!, textAlign: TextAlign.center,
+            Text(_error!,
+                textAlign: TextAlign.center,
                 style: const TextStyle(color: AppColors.textMuted)),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -247,9 +346,8 @@ class _TablesScreenState extends State<TablesScreen> {
       );
 
   void _openMenu(Place place) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => MenuScreen(place: place)),
-    );
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => MenuScreen(place: place)));
     _load();
   }
 }
@@ -258,15 +356,35 @@ class _TablesScreenState extends State<TablesScreen> {
 
 class _TableCard extends StatelessWidget {
   final Place place;
+  final bool canOpen;
   final VoidCallback onTap;
 
-  const _TableCard({required this.place, required this.onTap});
+  const _TableCard(
+      {required this.place, required this.canOpen, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final busy   = !place.empty;
-    final color  = busy ? AppColors.primary : AppColors.success;
-    final bgColor = busy ? AppColors.primaryLight : AppColors.successLight;
+    final busy    = !place.empty;
+    final locked  = busy && !canOpen;
+
+    // Rang logikasi
+    final Color borderColor;
+    final Color iconColor;
+    final Color bgColor;
+
+    if (locked) {
+      borderColor = AppColors.textMuted;
+      iconColor   = AppColors.textMuted;
+      bgColor     = AppColors.bg;
+    } else if (busy) {
+      borderColor = AppColors.primary;
+      iconColor   = AppColors.primary;
+      bgColor     = AppColors.primaryLight;
+    } else {
+      borderColor = AppColors.success;
+      iconColor   = AppColors.success;
+      bgColor     = AppColors.successLight;
+    }
 
     return GestureDetector(
       onTap: onTap,
@@ -275,60 +393,97 @@ class _TableCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color, width: busy ? 2 : 1),
+          border: Border.all(
+              color: borderColor,
+              width: (busy && canOpen) ? 2 : 1),
           boxShadow: [
             BoxShadow(
-              color: color.withAlpha(30),
+              color: borderColor.withAlpha(25),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(12),
+            // Kontent
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                        locked
+                            ? Icons.lock_outline
+                            : busy
+                                ? Icons.restaurant
+                                : Icons.table_restaurant_outlined,
+                        color: iconColor,
+                        size: 24),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(place.name,
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: locked
+                              ? AppColors.textMuted
+                              : AppColors.textDark),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center),
+                  const SizedBox(height: 3),
+                  if (locked)
+                    Text(
+                        place.activeOrderUserName.isNotEmpty
+                            ? place.activeOrderUserName
+                            : 'Band',
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textMuted),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis)
+                  else if (busy)
+                    Text(
+                        '${place.activeOrderTotal.toStringAsFixed(0)} so\'m',
+                        style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600))
+                  else
+                    const Text('Bo\'sh',
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.success)),
+
+                  if (place.zone.isNotEmpty)
+                    Text(place.zone,
+                        style: const TextStyle(
+                            fontSize: 10, color: AppColors.textMuted),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
+                ],
               ),
-              child: Icon(
-                  busy
-                      ? Icons.restaurant
-                      : Icons.table_restaurant_outlined,
-                  color: color,
-                  size: 24),
             ),
-            const SizedBox(height: 10),
-            Text(place.name,
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    color: AppColors.textDark),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-            const SizedBox(height: 4),
-            if (busy)
-              Text(
-                  '${place.activeOrderTotal.toStringAsFixed(0)} so\'m',
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.primary,
-                      fontWeight: FontWeight.w600))
-            else
-              Text('Bo\'sh',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.success.withAlpha(200))),
-            if (place.zone.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(place.zone,
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textMuted),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ],
+
+            // Qulf belgisi (locked bo'lsa)
+            if (locked)
+              Positioned(
+                top: 8, right: 8,
+                child: Container(
+                  width: 20, height: 20,
+                  decoration: BoxDecoration(
+                    color: AppColors.textMuted.withAlpha(30),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.lock,
+                      size: 12, color: AppColors.textMuted),
+                ),
+              ),
           ],
         ),
       ),
