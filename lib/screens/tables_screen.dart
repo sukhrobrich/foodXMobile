@@ -22,9 +22,9 @@ class _TablesScreenState extends State<TablesScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _navIndex,
-        children: const [
-          _TablesTab(),
-          MyOrdersScreen(),
+        children: [
+          const _TablesTab(),
+          MyOrdersScreen(key: MyOrdersScreen._key),
         ],
       ),
       bottomNavigationBar: Container(
@@ -33,7 +33,11 @@ class _TablesScreenState extends State<TablesScreen> {
         ),
         child: BottomNavigationBar(
           currentIndex: _navIndex,
-          onTap: (i) => setState(() => _navIndex = i),
+          onTap: (i) {
+            setState(() => _navIndex = i);
+            // Buyurtmalarim tabiga o'tganda yangilash
+            if (i == 1) MyOrdersScreen.refreshIfMounted();
+          },
           selectedItemColor: AppColors.primary,
           unselectedItemColor: AppColors.textMuted,
           backgroundColor: Colors.white,
