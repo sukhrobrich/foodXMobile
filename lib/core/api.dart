@@ -114,6 +114,8 @@ class Api {
         'Serverga ulanib bo\'lmadi.\nInternet ulanishini tekshiring.');
   }
 
+  // statusCode=null → connectivity muammosi (timeout/socket)
+  // statusCode bor  → server javob berdi lekin xato (401, 404, 500...)
   static Future<dynamic> get(String path) async {
     try {
       final headers = await _headers();
@@ -123,11 +125,11 @@ class Api {
     } on ApiException {
       rethrow;
     } on SocketException {
-      throw ApiException('Serverga ulanib bo\'lmadi. Internet ulanishini tekshiring.');
+      throw ApiException('Ulanib bo\'lmadi');       // statusCode=null
     } on TimeoutException {
-      throw ApiException('Server javob bermadi. Keyinroq urinib ko\'ring.');
-    } catch (e) {
-      throw ApiException('Ulanishda xatolik yuz berdi.');
+      throw ApiException('Server javob bermadi');    // statusCode=null
+    } catch (_) {
+      throw ApiException('Ulanishda xatolik');       // statusCode=null
     }
   }
 
@@ -141,11 +143,11 @@ class Api {
     } on ApiException {
       rethrow;
     } on SocketException {
-      throw ApiException('Serverga ulanib bo\'lmadi. Internet ulanishini tekshiring.');
+      throw ApiException('Ulanib bo\'lmadi');
     } on TimeoutException {
-      throw ApiException('Server javob bermadi. Keyinroq urinib ko\'ring.');
-    } catch (e) {
-      throw ApiException('Ulanishda xatolik yuz berdi.');
+      throw ApiException('Server javob bermadi');
+    } catch (_) {
+      throw ApiException('Ulanishda xatolik');
     }
   }
 
@@ -159,11 +161,11 @@ class Api {
     } on ApiException {
       rethrow;
     } on SocketException {
-      throw ApiException('Serverga ulanib bo\'lmadi. Internet ulanishini tekshiring.');
+      throw ApiException('Ulanib bo\'lmadi');
     } on TimeoutException {
-      throw ApiException('Server javob bermadi. Keyinroq urinib ko\'ring.');
-    } catch (e) {
-      throw ApiException('Ulanishda xatolik yuz berdi.');
+      throw ApiException('Server javob bermadi');
+    } catch (_) {
+      throw ApiException('Ulanishda xatolik');
     }
   }
 

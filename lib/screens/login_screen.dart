@@ -45,37 +45,25 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _error = null; _warning = null; _offlineMode = false; });
 
     try {
-      // ── 1. Ulanish holatini tekshirish ─────────────────────────────────
-      final cloudOk = await Api.isCloudReachable();
+      // ── 1. Kafe topish (cloud → local avtomatik fallback) ───────────────
+      final primaryUrl = await AppConfig.getBaseUrl();
+      Api.resetActiveBase(); // Har safar yangi ulanish tekshiruvi
 
-      if (!cloudOk) {
-        final localOk = await Api.isLocalReachable();
+      final cafeRes = await Api.get(
+          'auth/cafe?q=${Uri.encodeComponent(_cafeCtrl.text.trim())}');
+      final tenantId = cafeRes['tenantId'] as int;
+      final cafeName = (cafeRes['cafeName'] ?? '').toString();
 
-        if (!localOk) {
-          // Ikkalasi ham offline — kirish mumkin emas
-          final hasLocalConfigured =
-              (await AppConfig.getLocalUrl())?.isNotEmpty == true;
-          setState(() => _error = hasLocalConfigured
-              ? 'Asosiy monoblok online emas.\n\n'
-                'Kompyuter bilan bir xil Wi-Fi tarmoqida bo\'lishingiz kerak.'
-              : 'Asosiy monoblok online emas.\n\n'
-                '"Mahalliy tarmoqqa ulashish" bo\'limida\n'
-                'kompyuterning Wi-Fi IP sini kiriting.');
-          return;
-        }
+      // ── 2. Qaysi URL ishlatilganini aniqlaymiz ─────────────────────────
+      final activeUrl = Api.activeBaseUrl;
+      final usedLocalFallback = activeUrl != null && activeUrl != primaryUrl;
 
-        // Local ishlayapti — ogohlantirish bilan davom etamiz
+      if (usedLocalFallback) {
         setState(() {
           _offlineMode = true;
           _warning = 'Asosiy server offline.\nMahalliy tarmoq orqali ulandi.';
         });
       }
-
-      // ── 2. Kafe orqali tenantId topish ─────────────────────────────────
-      final cafeRes = await Api.get(
-          'auth/cafe?q=${Uri.encodeComponent(_cafeCtrl.text.trim())}');
-      final tenantId = cafeRes['tenantId'] as int;
-      final cafeName = (cafeRes['cafeName'] ?? '').toString();
 
       // ── 3. Login ────────────────────────────────────────────────────────
       final loginRes = await Api.post('auth/login', {
@@ -98,14 +86,25 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const TablesScreen()),
       );
+
     } on ApiException catch (e) {
-      setState(() {
-        if (e.statusCode == 401) {
-          _error = 'Login yoki parol noto\'g\'ri';
-        } else {
-          _error = e.message;
-        }
-      });
+      final hasLocal = (await AppConfig.getLocalUrl())?.isNotEmpty == true;
+
+      String err;
+      if (e.statusCode == 401) {
+        err = 'Login yoki parol noto\'g\'ri';
+      } else if (e.statusCode != null) {
+        // Server javob berdi lekin xato — haqiqiy server xatosi
+        err = e.message;
+      } else {
+        // Ulanib bo'lmadi (timeout / socket error)
+        err = hasLocal
+            ? 'Serverga ulanib bo\'lmadi.\nKompyuter bilan bir xil Wi-Fi tarmoqida bo\'lishingiz kerak.'
+            : 'Serverga ulanib bo\'lmadi.\n\n'
+              '"Mahalliy tarmoqqa ulashish" bo\'limida\n'
+              'kompyuterning Wi-Fi IP sini kiriting.';
+      }
+      setState(() => _error = err);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -334,20 +333,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               elevation: 0,
                             ),
                             child: _loading
-                                ? const Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      SizedBox(
-                                          width: 18, height: 18,
-                                          child: CircularProgressIndicator(
-                                              color: Colors.white,
-                                              strokeWidth: 2)),
-                                      SizedBox(width: 10),
-                                      Text('Tekshirilmoqda...',
-                                          style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14)),
-                                    ])
+                                ? const SizedBox(
+                                    width: 22, height: 22,
+                                    child: CircularProgressIndicator(
+                                        color: Colors.white, strokeWidth: 2.5))
                                 : const Text('Kirish',
                                     style: TextStyle(
                                         fontSize: 15,
