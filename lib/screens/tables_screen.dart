@@ -197,6 +197,7 @@ class _TablesTabState extends State<_TablesTab> with WidgetsBindingObserver {
 
   Future<void> _doLogout() async {
     await AppConfig.logout();
+    Api.resetActiveBase();
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const LoginScreen()),

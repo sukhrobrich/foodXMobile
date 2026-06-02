@@ -12,6 +12,9 @@ class ApiException implements Exception {
 }
 
 class Api {
+  // Joriy sessiyada ishlatilayotgan aktiv URL (null = hali aniqlanmagan)
+  static String? _activeBase;
+
   static Future<Map<String, String>> _headers() async {
     final token = await AppConfig.getToken();
     return {
@@ -20,15 +23,59 @@ class Api {
     };
   }
 
-  static Future<String> _base() async => await AppConfig.getBaseUrl();
+  // Aktiv bazani qaytaradi: oldin saqlangan bo'lsa shu, aks holda primary
+  static Future<String> _base() async {
+    if (_activeBase != null) return _activeBase!;
+    return await AppConfig.getBaseUrl();
+  }
+
+  static void resetActiveBase() => _activeBase = null;
+
+  // Asosiy so'rov + ulanmasa local URL ga fallback
+  static Future<http.Response> _send(
+      Future<http.Response> Function(String base) request) async {
+    final primary = await AppConfig.getBaseUrl();
+    final local   = await AppConfig.getLocalUrl();
+
+    // Aktiv URL belgilangan bo'lsa — to'g'ri ishlatamiz
+    if (_activeBase != null) {
+      try {
+        return await request(_activeBase!);
+      } on SocketException {
+        // Aktiv URL ishlamay qoldi — qayta urinib ko'ramiz
+        _activeBase = null;
+      } on Exception {
+        rethrow;
+      }
+    }
+
+    // Asosiy URL ga urinish (qisqaroq timeout — tez aniqlash uchun)
+    try {
+      final res = await request(primary)
+          .timeout(const Duration(seconds: 5));
+      _activeBase = primary;
+      return res;
+    } on Exception {
+      // Asosiy URL ishlamasa va local URL mavjud bo'lsa — fallback
+      if (local != null && local.isNotEmpty) {
+        try {
+          final res = await request(local)
+              .timeout(const Duration(seconds: 8));
+          _activeBase = local;
+          return res;
+        } on SocketException {
+          throw ApiException('Server bilan ulanib bo\'lmadi (online: $primary, offline: $local)');
+        }
+      }
+      throw ApiException('Server bilan ulanib bo\'lmadi');
+    }
+  }
 
   static Future<dynamic> get(String path) async {
     try {
-      final base = await _base();
       final headers = await _headers();
-      final res = await http
-          .get(Uri.parse('$base/api/$path'), headers: headers)
-          .timeout(const Duration(seconds: 12));
+      final res = await _send((base) =>
+          http.get(Uri.parse('$base/api/$path'), headers: headers));
       return _parse(res);
     } on ApiException {
       rethrow;
@@ -41,12 +88,10 @@ class Api {
 
   static Future<dynamic> post(String path, Map<String, dynamic> body) async {
     try {
-      final base = await _base();
       final headers = await _headers();
-      final res = await http
-          .post(Uri.parse('$base/api/$path'),
-              headers: headers, body: jsonEncode(body))
-          .timeout(const Duration(seconds: 12));
+      final res = await _send((base) =>
+          http.post(Uri.parse('$base/api/$path'),
+              headers: headers, body: jsonEncode(body)));
       return _parse(res);
     } on ApiException {
       rethrow;
@@ -59,12 +104,10 @@ class Api {
 
   static Future<dynamic> put(String path, Map<String, dynamic> body) async {
     try {
-      final base = await _base();
       final headers = await _headers();
-      final res = await http
-          .put(Uri.parse('$base/api/$path'),
-              headers: headers, body: jsonEncode(body))
-          .timeout(const Duration(seconds: 12));
+      final res = await _send((base) =>
+          http.put(Uri.parse('$base/api/$path'),
+              headers: headers, body: jsonEncode(body)));
       return _parse(res);
     } on ApiException {
       rethrow;

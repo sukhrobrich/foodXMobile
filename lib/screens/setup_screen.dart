@@ -11,8 +11,9 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final _formKey  = GlobalKey<FormState>();
-  final _urlCtrl  = TextEditingController();
+  final _formKey    = GlobalKey<FormState>();
+  final _urlCtrl    = TextEditingController();
+  final _localCtrl  = TextEditingController();
 
   bool    _loading   = false;
   String? _statusMsg;
@@ -26,11 +27,13 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _load() async {
-    final custom = await AppConfig.isUsingCustomUrl();
-    final url    = await AppConfig.getBaseUrl();
+    final custom   = await AppConfig.isUsingCustomUrl();
+    final url      = await AppConfig.getBaseUrl();
+    final localUrl = await AppConfig.getLocalUrl();
     setState(() {
       _isCustom = custom;
       if (custom) _urlCtrl.text = url;
+      if (localUrl != null && localUrl.isNotEmpty) _localCtrl.text = localUrl;
     });
   }
 
@@ -44,20 +47,39 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _test() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _statusMsg = null; });
-    final tid = await AppConfig.getTenantId();
-    final ok  = await Api.testConnection(_normalize(_urlCtrl.text), tid);
+    final tid      = await AppConfig.getTenantId();
+    final primary  = _normalize(_urlCtrl.text);
+    final localRaw = _localCtrl.text.trim();
+    final local    = localRaw.isNotEmpty ? _normalize(localRaw) : null;
+
+    final okPrimary = await Api.testConnection(primary, tid);
+    final okLocal   = local != null ? await Api.testConnection(local, tid) : null;
+
     setState(() {
-      _loading   = false;
-      _statusOk  = ok;
-      _statusMsg = ok
-          ? 'Ulanish muvaffaqiyatli!'
-          : 'Ulanib bo\'lmadi. IP va port tekshiring.';
+      _loading = false;
+      if (okPrimary) {
+        _statusOk  = true;
+        _statusMsg = '✓ Online server ulandi: $primary';
+      } else if (okLocal == true) {
+        _statusOk  = true;
+        _statusMsg = '✓ Offline server ulandi: $local';
+      } else {
+        _statusOk  = false;
+        _statusMsg = 'Ulanib bo\'lmadi. IP va port tekshiring.';
+      }
     });
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     await AppConfig.setBaseUrl(_normalize(_urlCtrl.text));
+    final localRaw = _localCtrl.text.trim();
+    if (localRaw.isNotEmpty) {
+      await AppConfig.setLocalUrl(_normalize(localRaw));
+    } else {
+      await AppConfig.clearLocalUrl();
+    }
+    Api.resetActiveBase();
     if (!mounted) return;
     Navigator.of(context).pop();
   }
@@ -174,6 +196,46 @@ class _SetupScreenState extends State<SetupScreen> {
                       onPressed: () => _urlCtrl.text = '$ip.',
                     ),
                 ]),
+                const SizedBox(height: 20),
+
+                // Offline (Windows PC) URL
+                const Text('Offline server manzili (ixtiyoriy)',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMuted)),
+                const SizedBox(height: 4),
+                const Text(
+                    'Online server javob bermasa avtomatik shu manzilga ulanadi.',
+                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _localCtrl,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    hintText: '192.168.35.252:5050',
+                    hintStyle: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 13),
+                    prefixIcon: const Icon(Icons.computer,
+                        color: AppColors.textMuted, size: 20),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppColors.border)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: AppColors.border)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(
+                            color: AppColors.primary, width: 1.5)),
+                  ),
+                ),
                 const SizedBox(height: 20),
 
                 // Status xabar

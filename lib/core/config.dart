@@ -1,10 +1,11 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppConfig {
-  // Markaziy server manzili — nginx port 80 orqali
-  static const centralUrl = 'http://192.168.35.230';
+  // Markaziy server manzili
+  static const centralUrl = 'http://192.168.35.230:5050';
 
   static const _keyBaseUrl   = 'base_url';
+  static const _keyLocalUrl  = 'local_url';   // Windows PC offline URL
   static const _keyTenantId  = 'tenant_id';
   static const _keyToken     = 'token';
   static const _keyUserName  = 'user_name';
@@ -34,6 +35,23 @@ class AppConfig {
     final p = await SharedPreferences.getInstance();
     final saved = p.getString(_keyBaseUrl);
     return saved != null && saved.isNotEmpty && saved != centralUrl;
+  }
+
+  // Mahalliy (offline) server manzili — Windows PC
+  static Future<String?> getLocalUrl() async {
+    final p = await SharedPreferences.getInstance();
+    return p.getString(_keyLocalUrl);
+  }
+
+  static Future<void> setLocalUrl(String url) async {
+    final p = await SharedPreferences.getInstance();
+    final clean = url.trim().replaceAll(RegExp(r'/+$'), '');
+    await p.setString(_keyLocalUrl, clean.isEmpty ? '' : clean);
+  }
+
+  static Future<void> clearLocalUrl() async {
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_keyLocalUrl);
   }
 
   static Future<int> getTenantId() async {
