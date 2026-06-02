@@ -16,28 +16,51 @@ class TablesScreen extends StatefulWidget {
 }
 
 class _TablesScreenState extends State<TablesScreen> {
-  int _navIndex = 0;
+  int    _navIndex = 0;
+  String _userRole = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRole();
+  }
+
+  Future<void> _loadRole() async {
+    final role = (await AppConfig.getUserRole()) ?? '';
+    if (mounted) setState(() => _userRole = role);
+  }
+
+  bool get _isKassir => _userRole == 'kassir' || _userRole == 'admin';
+
+  void _onTabTap(int i) {
+    setState(() => _navIndex = i);
+    if (i == 1) MyOrdersScreen.refreshIfMounted();
+    if (i == 2) AllOrdersScreen.refreshIfMounted();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final screens = [
+      const _TablesTab(),
+      MyOrdersScreen(key: MyOrdersScreen.instanceKey),
+      if (_isKassir) AllOrdersScreen(key: AllOrdersScreen.instanceKey),
+    ];
+
+    // Agar rol o'zgarsa va hozirgi index chegaradan chiqib qolsa
+    final safeIndex = _navIndex.clamp(0, screens.length - 1);
+
     return Scaffold(
       body: IndexedStack(
-        index: _navIndex,
-        children: [
-          const _TablesTab(),
-          MyOrdersScreen(key: MyOrdersScreen.instanceKey),
-        ],
+        index: safeIndex,
+        children: screens,
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: BottomNavigationBar(
-          currentIndex: _navIndex,
-          onTap: (i) {
-            setState(() => _navIndex = i);
-            if (i == 1) MyOrdersScreen.refreshIfMounted();
-          },
+          currentIndex: safeIndex,
+          onTap: _onTabTap,
           selectedItemColor: AppColors.primary,
           unselectedItemColor: AppColors.textMuted,
           backgroundColor: Colors.white,
@@ -45,17 +68,23 @@ class _TablesScreenState extends State<TablesScreen> {
           selectedLabelStyle:
               const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           unselectedLabelStyle: const TextStyle(fontSize: 12),
-          items: const [
-            BottomNavigationBarItem(
+          items: [
+            const BottomNavigationBarItem(
               icon: Icon(Icons.table_restaurant_outlined),
               activeIcon: Icon(Icons.table_restaurant),
               label: 'Stollar',
             ),
-            BottomNavigationBarItem(
+            const BottomNavigationBarItem(
               icon: Icon(Icons.receipt_long_outlined),
               activeIcon: Icon(Icons.receipt_long),
               label: 'Buyurtmalarim',
             ),
+            if (_isKassir)
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.list_alt_outlined),
+                activeIcon: Icon(Icons.list_alt),
+                label: 'Barcha buyurtmalar',
+              ),
           ],
         ),
       ),
