@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/colors.dart';
-import '../core/config.dart';
 import '../core/api.dart';
+import '../core/config.dart';
 import 'tables_screen.dart';
 import 'setup_screen.dart';
 
@@ -13,17 +13,23 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _formKey   = GlobalKey<FormState>();
   final _cafeCtrl  = TextEditingController();
   final _loginCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
 
-  bool    _loading   = false;
-  bool    _obscure   = true;
-  String? _error;
-  String? _warning;    // Mahalliy tarmoq ogohlantirishi (sariq)
-  bool    _offlineMode = false; // Mahalliy tarmoq orqali ishlayapti
-  String? _resolvedCafeName; // kafe topilgandan keyin ko'rsatish uchun
+  // Kafe tekshiruv natijasi
+  bool    _cafeLoading  = false;
+  int?    _tenantId;
+  String? _cafeName;
+  String? _cafeError;
+
+  // Login
+  bool    _loginLoading = false;
+  bool    _obscure      = true;
+  String? _loginError;
+  String? _warning;
+
+  bool get _cafeFound => _tenantId != null;
 
   @override
   void initState() {
@@ -34,51 +40,94 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loadSavedCafe() async {
     final code = await AppConfig.getCafeCode();
     final name = await AppConfig.getCafeName();
-    if (code != null) {
+    if (code != null && code.isNotEmpty) {
       _cafeCtrl.text = code;
-      setState(() => _resolvedCafeName = name);
+      // Agar saqlangan bo'lsa — avtomatik tekshiramiz
+      if (name != null && name.isNotEmpty) {
+        // Faqat UI ni ko'rsatamiz, so'rov yubormaymiz (offline bo'lishi mumkin)
+        setState(() => _cafeName = name);
+      }
     }
   }
 
-  Future<void> _login() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() { _loading = true; _error = null; _warning = null; _offlineMode = false; });
+  // ── 1-qadam: Kafeni tekshirish ─────────────────────────────────────────────
+  Future<void> _checkCafe() async {
+    final q = _cafeCtrl.text.trim();
+    if (q.isEmpty) return;
+
+    setState(() {
+      _cafeLoading = true;
+      _cafeError   = null;
+      _tenantId    = null;
+      _cafeName    = null;
+      _loginError  = null;
+      _warning     = null;
+      _loginCtrl.clear();
+      _passCtrl.clear();
+    });
 
     try {
-      // ── 1. Kafe topish (cloud → local avtomatik fallback) ───────────────
-      final primaryUrl = await AppConfig.getBaseUrl(); // Saqlangan yoki default
+      final primaryUrl = await AppConfig.getBaseUrl();
       Api.resetActiveBase();
 
-      final cafeRes = await Api.get(
-          'auth/cafe?q=${Uri.encodeComponent(_cafeCtrl.text.trim())}');
-      final tenantId = cafeRes['tenantId'] as int;
-      final cafeName = (cafeRes['cafeName'] ?? '').toString();
+      final res      = await Api.get('auth/cafe?q=${Uri.encodeComponent(q)}');
+      final tenantId = res['tenantId'] as int;
+      final cafeName = (res['cafeName'] ?? '').toString();
 
-      // ── 2. Qaysi URL ishlatilganini aniqlaymiz ─────────────────────────
-      final activeUrl = Api.activeBaseUrl;
-      final usedLocalFallback = activeUrl != null && activeUrl != primaryUrl;
+      // Qaysi URL ishlatilgani
+      final activeUrl      = Api.activeBaseUrl;
+      final usedFallback   = activeUrl != null && activeUrl != primaryUrl;
 
-      if (usedLocalFallback) {
-        setState(() {
-          _offlineMode = true;
-          _warning = 'Asosiy server offline.\nMahalliy tarmoq orqali ulandi.';
-        });
-      }
+      await AppConfig.saveCafe(q, cafeName);
 
-      // ── 3. Login ────────────────────────────────────────────────────────
+      setState(() {
+        _tenantId  = tenantId;
+        _cafeName  = cafeName;
+        if (usedFallback)
+          _warning = 'Asosiy server offline. Mahalliy tarmoq orqali ulandi.';
+      });
+
+      // Login maydoniga fokus
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted) FocusScope.of(context).nextFocus();
+      });
+
+    } on ApiException catch (e) {
+      final hasLocal = (await AppConfig.getLocalUrl())?.isNotEmpty == true;
+      setState(() {
+        _cafeError = (e.statusCode == 404)
+            ? 'Kafe topilmadi. Nomni to\'g\'ri kiriting.'
+            : (e.statusCode != null)
+                ? e.message
+                : hasLocal
+                    ? 'Serverga ulanib bo\'lmadi.\nKompyuter bilan bir xil Wi-Fi da bo\'ling.'
+                    : 'Serverga ulanib bo\'lmadi.\n"Mahalliy tarmoqqa ulashish" da IP kiriting.';
+      });
+    } finally {
+      if (mounted) setState(() => _cafeLoading = false);
+    }
+  }
+
+  // ── 2-qadam: Login ─────────────────────────────────────────────────────────
+  Future<void> _login() async {
+    if (!_cafeFound) return;
+    if (_loginCtrl.text.trim().isEmpty || _passCtrl.text.isEmpty) return;
+
+    setState(() { _loginLoading = true; _loginError = null; });
+
+    try {
       final loginRes = await Api.post('auth/login', {
         'login':    _loginCtrl.text.trim(),
         'password': _passCtrl.text,
-        'tenantId': tenantId,
+        'tenantId': _tenantId!,
       });
 
       await AppConfig.setToken(loginRes['token'] as String);
-      await AppConfig.setTenantId(tenantId);
-      await AppConfig.saveCafe(_cafeCtrl.text.trim(), cafeName);
+      await AppConfig.setTenantId(_tenantId!);
 
       final user = loginRes['user'] as Map<String, dynamic>;
       await AppConfig.saveUser(
-          user['id'] as int,
+          user['id']   as int,
           (user['name'] ?? '').toString(),
           (user['role'] ?? '').toString());
 
@@ -88,25 +137,13 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
     } on ApiException catch (e) {
-      final hasLocal = (await AppConfig.getLocalUrl())?.isNotEmpty == true;
-
-      String err;
-      if (e.statusCode == 401) {
-        err = 'Login yoki parol noto\'g\'ri';
-      } else if (e.statusCode != null) {
-        // Server javob berdi lekin xato — haqiqiy server xatosi
-        err = e.message;
-      } else {
-        // Ulanib bo'lmadi (timeout / socket error)
-        err = hasLocal
-            ? 'Serverga ulanib bo\'lmadi.\nKompyuter bilan bir xil Wi-Fi tarmoqida bo\'lishingiz kerak.'
-            : 'Serverga ulanib bo\'lmadi.\n\n'
-              '"Mahalliy tarmoqqa ulashish" bo\'limida\n'
-              'kompyuterning Wi-Fi IP sini kiriting.';
-      }
-      setState(() => _error = err);
+      setState(() {
+        _loginError = e.statusCode == 401
+            ? 'Login yoki parol noto\'g\'ri'
+            : e.message;
+      });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _loginLoading = false);
     }
   }
 
@@ -118,242 +155,234 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 16),
 
-                  // Logo
-                  Container(
-                    width: 76, height: 76,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primary.withAlpha(60),
-                          blurRadius: 16,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(Icons.restaurant_menu,
-                        color: Colors.white, size: 40),
+                // ── Logo ───────────────────────────────────────────────────
+                Container(
+                  width: 76, height: 76,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(
+                        color: AppColors.primary.withAlpha(60),
+                        blurRadius: 16, offset: const Offset(0, 6))],
                   ),
-                  const SizedBox(height: 16),
-                  const Text('FoodX',
-                      style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: 0.5)),
-                  const SizedBox(height: 4),
-                  const Text('Ofitsiant ilovasi',
-                      style: TextStyle(
-                          fontSize: 13, color: AppColors.textMuted)),
-                  const SizedBox(height: 32),
+                  child: const Icon(Icons.restaurant_menu,
+                      color: Colors.white, size: 40),
+                ),
+                const SizedBox(height: 16),
+                const Text('FoodX',
+                    style: TextStyle(
+                        fontSize: 28, fontWeight: FontWeight.bold,
+                        color: AppColors.textDark, letterSpacing: 0.5)),
+                const SizedBox(height: 4),
+                const Text('Ofitsiant ilovasi',
+                    style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
+                const SizedBox(height: 32),
 
-                  // Login card
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: AppColors.border),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(8),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Kirish',
-                            style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textDark)),
-                        const SizedBox(height: 20),
+                // ── Karta ──────────────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                    boxShadow: [BoxShadow(
+                        color: Colors.black.withAlpha(8),
+                        blurRadius: 12, offset: const Offset(0, 4))],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Kirish',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold,
+                              color: AppColors.textDark)),
+                      const SizedBox(height: 20),
 
-                        // ── Kafe nomi ──────────────────────────────────────
-                        _label('Kafe nomi'),
-                        const SizedBox(height: 6),
-                        TextFormField(
-                          controller: _cafeCtrl,
-                          textInputAction: TextInputAction.next,
-                          onChanged: (_) =>
-                              setState(() => _resolvedCafeName = null),
-                          decoration: _inputDec(
-                            'Kafe nomi yoki kodi',
-                            Icons.store_outlined,
-                            suffix: _resolvedCafeName != null
-                                ? Padding(
-                                    padding: const EdgeInsets.only(right: 12),
-                                    child: Row(mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.check_circle,
-                                              color: AppColors.success,
-                                              size: 16),
-                                          const SizedBox(width: 4),
-                                          Text(_resolvedCafeName!,
-                                              style: const TextStyle(
-                                                  fontSize: 11,
-                                                  color: AppColors.success,
-                                                  fontWeight:
-                                                      FontWeight.w600)),
-                                        ]),
-                                  )
-                                : null,
-                          ),
-                          validator: (v) => (v == null || v.trim().isEmpty)
-                              ? 'Kafe nomini kiriting'
-                              : null,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // ── Login ──────────────────────────────────────────
-                        _label('Login'),
-                        const SizedBox(height: 6),
-                        TextFormField(
-                          controller: _loginCtrl,
-                          textInputAction: TextInputAction.next,
-                          decoration:
-                              _inputDec('login', Icons.person_outline),
-                          validator: (v) =>
-                              (v == null || v.trim().isEmpty)
-                                  ? 'Login kiriting'
+                      // ── Kafe nomi ─────────────────────────────────────
+                      _label('Kafe nomi'),
+                      const SizedBox(height: 6),
+                      Row(children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _cafeCtrl,
+                            textInputAction: TextInputAction.search,
+                            onSubmitted: (_) => _checkCafe(),
+                            onChanged: (_) => setState(() {
+                              _tenantId   = null;
+                              _cafeName   = null;
+                              _cafeError  = null;
+                              _loginError = null;
+                              _warning    = null;
+                            }),
+                            decoration: _inputDec(
+                              'Kafe nomi yoki kodi',
+                              Icons.store_outlined,
+                              suffix: _cafeFound
+                                  ? const Padding(
+                                      padding: EdgeInsets.only(right: 10),
+                                      child: Icon(Icons.check_circle,
+                                          color: AppColors.success, size: 20))
                                   : null,
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 16),
-
-                        // ── Parol ──────────────────────────────────────────
-                        _label('Parol'),
-                        const SizedBox(height: 6),
-                        TextFormField(
-                          controller: _passCtrl,
-                          obscureText: _obscure,
-                          textInputAction: TextInputAction.done,
-                          onFieldSubmitted: (_) => _login(),
-                          decoration: _inputDec(
-                            'parol',
-                            Icons.lock_outline,
-                            suffix: IconButton(
-                              icon: Icon(
-                                  _obscure
-                                      ? Icons.visibility_off_outlined
-                                      : Icons.visibility_outlined,
-                                  color: AppColors.textMuted,
-                                  size: 20),
-                              onPressed: () =>
-                                  setState(() => _obscure = !_obscure),
-                            ),
-                          ),
-                          validator: (v) =>
-                              (v == null || v.isEmpty)
-                                  ? 'Parol kiriting'
-                                  : null,
-                        ),
-                        const SizedBox(height: 20),
-
-                        // ── Offline ogohlantirish (sariq) ─────────────────
-                        if (_warning != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF8E1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                  color: const Color(0xFFFFB300).withAlpha(160)),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(Icons.wifi_off_rounded,
-                                    color: Color(0xFFFF8F00), size: 18),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                    child: Text(_warning!,
-                                        style: const TextStyle(
-                                            fontSize: 13,
-                                            color: Color(0xFF7B5800),
-                                            fontWeight: FontWeight.w500))),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-
-                        // ── Xatolik (qizil) ────────────────────────────────
-                        if (_error != null) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: AppColors.dangerLight,
-                              borderRadius: BorderRadius.circular(8),
-                              border:
-                                  Border.all(color: AppColors.danger.withAlpha(80)),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(Icons.error_outline,
-                                    color: AppColors.danger, size: 16),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                    child: Text(_error!,
-                                        style: const TextStyle(
-                                            fontSize: 13,
-                                            color: AppColors.danger))),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-
-                        // ── Kirish tugmasi ─────────────────────────────────
+                        const SizedBox(width: 8),
                         SizedBox(
-                          width: double.infinity,
                           height: 50,
                           child: ElevatedButton(
-                            onPressed: _loading ? null : _login,
+                            onPressed: _cafeLoading ? null : _checkCafe,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
                               foregroundColor: Colors.white,
                               disabledBackgroundColor:
-                                  AppColors.primary.withAlpha(120),
+                                  AppColors.primary.withAlpha(100),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
+                                  borderRadius: BorderRadius.circular(10)),
                               elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16),
                             ),
-                            child: _loading
+                            child: _cafeLoading
                                 ? const SizedBox(
-                                    width: 22, height: 22,
+                                    width: 18, height: 18,
                                     child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2.5))
-                                : const Text('Kirish',
+                                        color: Colors.white, strokeWidth: 2))
+                                : const Text('Tekshir',
                                     style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold)),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13)),
                           ),
                         ),
+                      ]),
+
+                      // Kafe topildi banner
+                      if (_cafeFound) ...[
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: AppColors.successLight,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: AppColors.success.withAlpha(80)),
+                          ),
+                          child: Row(children: [
+                            const Icon(Icons.check_circle_outline,
+                                color: AppColors.success, size: 16),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Topildi: $_cafeName',
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.success,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ]),
+                        ),
                       ],
-                    ),
+
+                      // Kafe xatolik
+                      if (_cafeError != null) ...[
+                        const SizedBox(height: 10),
+                        _errorBox(_cafeError!),
+                      ],
+
+                      // Offline ogohlantirish
+                      if (_warning != null) ...[
+                        const SizedBox(height: 10),
+                        _warningBox(_warning!),
+                      ],
+
+                      const SizedBox(height: 20),
+
+                      // ── Login ─────────────────────────────────────────
+                      _label('Login'),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: _loginCtrl,
+                        enabled: _cafeFound,
+                        textInputAction: TextInputAction.next,
+                        decoration: _inputDec('login', Icons.person_outline),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // ── Parol ─────────────────────────────────────────
+                      _label('Parol'),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: _passCtrl,
+                        enabled: _cafeFound,
+                        obscureText: _obscure,
+                        textInputAction: TextInputAction.done,
+                        onFieldSubmitted: (_) => _login(),
+                        decoration: _inputDec(
+                          'parol',
+                          Icons.lock_outline,
+                          suffix: _cafeFound
+                              ? IconButton(
+                                  icon: Icon(
+                                      _obscure
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined,
+                                      color: AppColors.textMuted, size: 20),
+                                  onPressed: () =>
+                                      setState(() => _obscure = !_obscure),
+                                )
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Login xatolik
+                      if (_loginError != null) ...[
+                        _errorBox(_loginError!),
+                        const SizedBox(height: 16),
+                      ],
+
+                      // ── Kirish tugmasi ────────────────────────────────
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: (_cafeFound && !_loginLoading)
+                              ? _login
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                AppColors.primary.withAlpha(60),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
+                          child: _loginLoading
+                              ? const SizedBox(
+                                  width: 22, height: 22,
+                                  child: CircularProgressIndicator(
+                                      color: Colors.white, strokeWidth: 2.5))
+                              : const Text('Kirish',
+                                  style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
 
-                  const SizedBox(height: 20),
-
-                  // Mahalliy tarmoq / sozlamalar
-                  _LocalNetworkTile(),
-                  const SizedBox(height: 16),
-                ],
-              ),
+                const SizedBox(height: 20),
+                _LocalNetworkTile(),
+                const SizedBox(height: 16),
+              ],
             ),
           ),
         ),
@@ -366,6 +395,53 @@ class _LoginScreenState extends State<LoginScreen> {
           fontSize: 13,
           fontWeight: FontWeight.w600,
           color: AppColors.textMuted));
+
+  Widget _errorBox(String msg) => Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.dangerLight,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.danger.withAlpha(80)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.error_outline,
+                color: AppColors.danger, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(msg,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.danger))),
+          ],
+        ),
+      );
+
+  Widget _warningBox(String msg) => Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: const Color(0xFFFFB300).withAlpha(160)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.wifi_off_rounded,
+                color: Color(0xFFFF8F00), size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(msg,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF7B5800),
+                        fontWeight: FontWeight.w500))),
+          ],
+        ),
+      );
 
   InputDecoration _inputDec(String hint, IconData icon, {Widget? suffix}) =>
       InputDecoration(
@@ -384,6 +460,10 @@ class _LoginScreenState extends State<LoginScreen> {
         enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: AppColors.border)),
+        disabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(
+                color: AppColors.border.withAlpha(100))),
         focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide:
@@ -431,14 +511,14 @@ class _LocalNetworkTileState extends State<_LocalNetworkTile> {
           color: _custom ? AppColors.primaryLight : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: _custom ? AppColors.primary : AppColors.border),
+              color:
+                  _custom ? AppColors.primary : AppColors.border),
         ),
         child: Row(children: [
           Icon(
-              _custom
-                  ? Icons.wifi
-                  : Icons.settings_outlined,
-              color: _custom ? AppColors.primary : AppColors.textMuted,
+              _custom ? Icons.wifi : Icons.settings_outlined,
+              color:
+                  _custom ? AppColors.primary : AppColors.textMuted,
               size: 18),
           const SizedBox(width: 10),
           Expanded(
