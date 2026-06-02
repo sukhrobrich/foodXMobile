@@ -246,22 +246,71 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
                         : RefreshIndicator(
                             color: AppColors.primary,
                             onRefresh: _load,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(
-                                  16, 12, 16, 24),
-                              itemCount: _orders.length,
-                              itemBuilder: (_, i) => _OrderCard(
-                                order: _orders[i],
-                                canPay: _canPay && _orders[i].paid == 'NO',
-                                onPay: () => _payOrder(_orders[i]),
-                                onReceipt: () => _showReceipt(_orders[i]),
-                              ),
-                            ),
+                            child: _buildGroupedList(),
                           ),
           ),
         ],
       ),
     );
+  }
+
+  // Buyurtmalarni sana bo'yicha guruhlash
+  Widget _buildGroupedList() {
+    // { 'dateKey': [orders] }
+    final Map<String, List<_Order>> groups = {};
+    for (final o in _orders) {
+      final key = _dateKey(o.createdAt);
+      groups.putIfAbsent(key, () => []).add(o);
+    }
+
+    // Kalitlarni tartiblab olamiz (yangi birinchi)
+    final keys = groups.keys.toList();
+
+    // Umumiy item soni: har bir guruh uchun 1 header + N karta
+    final totalItems = keys.fold<int>(
+        0, (sum, k) => sum + 1 + (groups[k]?.length ?? 0));
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      itemCount: totalItems,
+      itemBuilder: (_, idx) {
+        // idx → qaysi guruh, qaysi karta
+        int cursor = 0;
+        for (final key in keys) {
+          final list = groups[key]!;
+          if (idx == cursor) {
+            // Sana sarlavhasi
+            return _DateHeader(label: key);
+          }
+          cursor++;
+          if (idx < cursor + list.length) {
+            final order = list[idx - cursor];
+            return _OrderCard(
+              order: order,
+              canPay: _canPay && order.paid == 'NO',
+              onPay: () => _payOrder(order),
+              onReceipt: () => _showReceipt(order),
+            );
+          }
+          cursor += list.length;
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  // Sana kalitini hosil qiladi: "Bugun", "Kecha", "02.06.2026"
+  String _dateKey(DateTime dt) {
+    final local = dt.toLocal();
+    final now   = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d     = DateTime(local.year, local.month, local.day);
+    final diff  = today.difference(d).inDays;
+    if (diff == 0) return 'Bugun';
+    if (diff == 1) return 'Kecha';
+    return '${d.day.toString().padLeft(2,'0')}.'
+        '${d.month.toString().padLeft(2,'0')}.'
+        '${d.year}';
   }
 
   Widget _buildError() => Center(
@@ -572,8 +621,7 @@ class _OrderCard extends StatelessWidget {
                   ]),
                   const SizedBox(height: 3),
                   Text(
-                      '${order.itemsCount} ta taom  •  '
-                      '${_fmt(order.createdAt)}',
+                      '${order.itemsCount} ta taom  •  ${_fmt(order.createdAt)}',
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.textMuted)),
                 ],
@@ -632,16 +680,10 @@ class _OrderCard extends StatelessWidget {
     );
   }
 
+  // Faqat soat:daqiqa ko'rsatadi (sana header da ko'rsatiladi)
   String _fmt(DateTime dt) {
     final local = dt.toLocal();
-    final now   = DateTime.now();
-    final diff  = now.difference(local);
-    if (diff.inSeconds < 60)  return 'Hozir';
-    if (diff.inMinutes < 60)  return '${diff.inMinutes} daqiqa oldin';
-    if (diff.inHours   < 24)  return '${diff.inHours} soat oldin';
-    return '${local.day.toString().padLeft(2,'0')}.'
-        '${local.month.toString().padLeft(2,'0')} '
-        '${local.hour.toString().padLeft(2,'0')}:'
+    return '${local.hour.toString().padLeft(2,'0')}:'
         '${local.minute.toString().padLeft(2,'0')}';
   }
 }
@@ -685,4 +727,35 @@ class _Order {
         total:      (j['total'] ?? 0).toDouble(),
         itemsCount: (j['items_count'] ?? 0) as int,
       );
+}
+// ── Sana sarlavhasi ───────────────────────────────────────────────────────────
+
+class _DateHeader extends StatelessWidget {
+  final String label;
+  const _DateHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppColors.textDark,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.white),
+          ),
+        ),
+        const SizedBox(width: 10),
+        const Expanded(child: Divider(color: AppColors.border, height: 1)),
+      ]),
+    );
+  }
 }
