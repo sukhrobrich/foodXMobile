@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -40,35 +41,51 @@ class Api {
     // Aktiv URL belgilangan bo'lsa — to'g'ri ishlatamiz
     if (_activeBase != null) {
       try {
-        return await request(_activeBase!);
+        return await request(_activeBase!)
+            .timeout(const Duration(seconds: 10));
       } on SocketException {
-        // Aktiv URL ishlamay qoldi — qayta urinib ko'ramiz
+        _activeBase = null; // ishlamay qoldi — qayta urinib ko'ramiz
+      } on TimeoutException {
         _activeBase = null;
-      } on Exception {
+      } on ApiException {
         rethrow;
       }
     }
 
-    // Asosiy URL ga urinish (qisqaroq timeout — tez aniqlash uchun)
+    // 1. Asosiy (cloud) URL ga urinish
     try {
       final res = await request(primary)
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 6));
       _activeBase = primary;
       return res;
-    } on Exception {
-      // Asosiy URL ishlamasa va local URL mavjud bo'lsa — fallback
-      if (local != null && local.isNotEmpty) {
-        try {
-          final res = await request(local)
-              .timeout(const Duration(seconds: 8));
-          _activeBase = local;
-          return res;
-        } on SocketException {
-          throw ApiException('Server bilan ulanib bo\'lmadi (online: $primary, offline: $local)');
-        }
-      }
-      throw ApiException('Server bilan ulanib bo\'lmadi');
+    } on SocketException {
+      // Ulanish rad etildi — local ga o'tamiz
+    } on TimeoutException {
+      // Timeout — local ga o'tamiz
+    } on ApiException {
+      rethrow;
     }
+
+    // 2. Mahalliy (Wi-Fi) URL ga fallback
+    if (local != null && local.isNotEmpty) {
+      try {
+        final res = await request(local)
+            .timeout(const Duration(seconds: 6));
+        _activeBase = local;
+        return res;
+      } on SocketException {
+        throw ApiException(
+            'Serverga ulanib bo\'lmadi.\nInternet yoki Wi-Fi ulanishini tekshiring.');
+      } on TimeoutException {
+        throw ApiException(
+            'Server javob bermadi.\nInternet yoki Wi-Fi ulanishini tekshiring.');
+      } on ApiException {
+        rethrow;
+      }
+    }
+
+    throw ApiException(
+        'Serverga ulanib bo\'lmadi.\nInternet ulanishini tekshiring.');
   }
 
   static Future<dynamic> get(String path) async {
@@ -80,9 +97,11 @@ class Api {
     } on ApiException {
       rethrow;
     } on SocketException {
-      throw ApiException('Server bilan ulanib bo\'lmadi');
+      throw ApiException('Serverga ulanib bo\'lmadi. Internet ulanishini tekshiring.');
+    } on TimeoutException {
+      throw ApiException('Server javob bermadi. Keyinroq urinib ko\'ring.');
     } catch (e) {
-      throw ApiException('Xatolik: $e');
+      throw ApiException('Ulanishda xatolik yuz berdi.');
     }
   }
 
@@ -96,9 +115,11 @@ class Api {
     } on ApiException {
       rethrow;
     } on SocketException {
-      throw ApiException('Server bilan ulanib bo\'lmadi');
+      throw ApiException('Serverga ulanib bo\'lmadi. Internet ulanishini tekshiring.');
+    } on TimeoutException {
+      throw ApiException('Server javob bermadi. Keyinroq urinib ko\'ring.');
     } catch (e) {
-      throw ApiException('Xatolik: $e');
+      throw ApiException('Ulanishda xatolik yuz berdi.');
     }
   }
 
@@ -112,9 +133,11 @@ class Api {
     } on ApiException {
       rethrow;
     } on SocketException {
-      throw ApiException('Server bilan ulanib bo\'lmadi');
+      throw ApiException('Serverga ulanib bo\'lmadi. Internet ulanishini tekshiring.');
+    } on TimeoutException {
+      throw ApiException('Server javob bermadi. Keyinroq urinib ko\'ring.');
     } catch (e) {
-      throw ApiException('Xatolik: $e');
+      throw ApiException('Ulanishda xatolik yuz berdi.');
     }
   }
 
