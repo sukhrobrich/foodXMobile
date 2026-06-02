@@ -34,11 +34,18 @@ class _SetupScreenState extends State<SetupScreen> {
     });
   }
 
+  String _normalize(String raw) {
+    final s = raw.trim();
+    if (s.isEmpty) return s;
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    return 'http://$s';
+  }
+
   Future<void> _test() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _statusMsg = null; });
     final tid = await AppConfig.getTenantId();
-    final ok  = await Api.testConnection(_urlCtrl.text.trim(), tid);
+    final ok  = await Api.testConnection(_normalize(_urlCtrl.text), tid);
     setState(() {
       _loading   = false;
       _statusOk  = ok;
@@ -50,7 +57,7 @@ class _SetupScreenState extends State<SetupScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    await AppConfig.setBaseUrl(_urlCtrl.text.trim());
+    await AppConfig.setBaseUrl(_normalize(_urlCtrl.text));
     if (!mounted) return;
     Navigator.of(context).pop();
   }
@@ -125,7 +132,7 @@ class _SetupScreenState extends State<SetupScreen> {
                   controller: _urlCtrl,
                   keyboardType: TextInputType.url,
                   decoration: InputDecoration(
-                    hintText: 'http://192.168.1.100:5000',
+                    hintText: '192.168.1.100:5050',
                     hintStyle: const TextStyle(
                         color: AppColors.textMuted, fontSize: 13),
                     prefixIcon: const Icon(Icons.wifi,
@@ -151,9 +158,6 @@ class _SetupScreenState extends State<SetupScreen> {
                     if (v == null || v.trim().isEmpty) {
                       return 'IP manzil kiriting';
                     }
-                    if (!v.trim().startsWith('http')) {
-                      return 'http:// bilan boshlang';
-                    }
                     return null;
                   },
                 ),
@@ -163,12 +167,11 @@ class _SetupScreenState extends State<SetupScreen> {
                 Wrap(spacing: 8, children: [
                   for (final ip in ['192.168.1', '192.168.0', '10.0.0'])
                     ActionChip(
-                      label: Text('$ip.x:5000',
+                      label: Text('$ip.x:5050',
                           style: const TextStyle(fontSize: 11)),
                       backgroundColor: AppColors.bg,
                       side: const BorderSide(color: AppColors.border),
-                      onPressed: () =>
-                          _urlCtrl.text = 'http://$ip.',
+                      onPressed: () => _urlCtrl.text = '$ip.',
                     ),
                 ]),
                 const SizedBox(height: 20),
