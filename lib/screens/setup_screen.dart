@@ -32,7 +32,8 @@ class _SetupScreenState extends State<SetupScreen> {
     final localUrl = await AppConfig.getLocalUrl();
     setState(() {
       _isCustom = custom;
-      if (custom) _urlCtrl.text = url;
+      // Har doim joriy URL ni ko'rsatamiz (custom bo'lmasa ham)
+      _urlCtrl.text = url;
       if (localUrl != null && localUrl.isNotEmpty) _localCtrl.text = localUrl;
     });
   }
@@ -187,12 +188,17 @@ class _SetupScreenState extends State<SetupScreen> {
 
                 // Tezkor misollar
                 Wrap(spacing: 8, children: [
-                  for (final ip in ['192.168.1', '192.168.0', '10.0.0'])
+                  for (final ip in ['192.168.35', '192.168.1', '192.168.0', '10.0.0'])
                     ActionChip(
                       label: Text('$ip.x:5050',
                           style: const TextStyle(fontSize: 11)),
-                      backgroundColor: AppColors.bg,
-                      side: const BorderSide(color: AppColors.border),
+                      backgroundColor: ip == '192.168.35'
+                          ? AppColors.primaryLight
+                          : AppColors.bg,
+                      side: BorderSide(
+                          color: ip == '192.168.35'
+                              ? AppColors.primary
+                              : AppColors.border),
                       onPressed: () => _urlCtrl.text = '$ip.',
                     ),
                 ]),

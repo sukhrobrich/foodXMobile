@@ -31,6 +31,32 @@ class Api {
   }
 
   static void resetActiveBase() => _activeBase = null;
+  static String? get activeBaseUrl => _activeBase;
+
+  // Cloud serverga ulanish borligini tekshiradi (4 soniya)
+  static Future<bool> isCloudReachable() async {
+    try {
+      final base = await AppConfig.getBaseUrl();
+      final clean = base.replaceAll(RegExp(r'/+$'), '');
+      await http.get(Uri.parse('$clean/')).timeout(const Duration(seconds: 4));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Mahalliy serverga ulanish borligini tekshiradi (4 soniya)
+  static Future<bool> isLocalReachable() async {
+    try {
+      final local = await AppConfig.getLocalUrl();
+      if (local == null || local.isEmpty) return false;
+      final clean = local.replaceAll(RegExp(r'/+$'), '');
+      await http.get(Uri.parse('$clean/')).timeout(const Duration(seconds: 4));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   // Asosiy so'rov + ulanmasa local URL ga fallback
   static Future<http.Response> _send(
@@ -55,7 +81,7 @@ class Api {
     // 1. Asosiy (cloud) URL ga urinish
     try {
       final res = await request(primary)
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 5));
       _activeBase = primary;
       return res;
     } on SocketException {

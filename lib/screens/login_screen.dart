@@ -18,9 +18,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _loginCtrl = TextEditingController();
   final _passCtrl  = TextEditingController();
 
-  bool    _loading  = false;
-  bool    _obscure  = true;
+  bool    _loading   = false;
+  bool    _obscure   = true;
   String? _error;
+  String? _warning;    // Mahalliy tarmoq ogohlantirishi (sariq)
+  bool    _offlineMode = false; // Mahalliy tarmoq orqali ishlayapti
   String? _resolvedCafeName; // kafe topilgandan keyin ko'rsatish uchun
 
   @override
@@ -40,16 +42,42 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _loading = true; _error = null; });
+    setState(() { _loading = true; _error = null; _warning = null; _offlineMode = false; });
 
     try {
-      // 1-qadam: kafe nomi orqali tenantId topish
+      // ── 1. Ulanish holatini tekshirish ─────────────────────────────────
+      final cloudOk = await Api.isCloudReachable();
+
+      if (!cloudOk) {
+        final localOk = await Api.isLocalReachable();
+
+        if (!localOk) {
+          // Ikkalasi ham offline — kirish mumkin emas
+          final hasLocalConfigured =
+              (await AppConfig.getLocalUrl())?.isNotEmpty == true;
+          setState(() => _error = hasLocalConfigured
+              ? 'Asosiy monoblok online emas.\n\n'
+                'Kompyuter bilan bir xil Wi-Fi tarmoqida bo\'lishingiz kerak.'
+              : 'Asosiy monoblok online emas.\n\n'
+                '"Mahalliy tarmoqqa ulashish" bo\'limida\n'
+                'kompyuterning Wi-Fi IP sini kiriting.');
+          return;
+        }
+
+        // Local ishlayapti — ogohlantirish bilan davom etamiz
+        setState(() {
+          _offlineMode = true;
+          _warning = 'Asosiy server offline.\nMahalliy tarmoq orqali ulandi.';
+        });
+      }
+
+      // ── 2. Kafe orqali tenantId topish ─────────────────────────────────
       final cafeRes = await Api.get(
           'auth/cafe?q=${Uri.encodeComponent(_cafeCtrl.text.trim())}');
-      final tenantId  = cafeRes['tenantId'] as int;
-      final cafeName  = (cafeRes['cafeName'] ?? '').toString();
+      final tenantId = cafeRes['tenantId'] as int;
+      final cafeName = (cafeRes['cafeName'] ?? '').toString();
 
-      // 2-qadam: ofitsiant login + parol bilan kirish
+      // ── 3. Login ────────────────────────────────────────────────────────
       final loginRes = await Api.post('auth/login', {
         'login':    _loginCtrl.text.trim(),
         'password': _passCtrl.text,
@@ -72,8 +100,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } on ApiException catch (e) {
       setState(() {
-        _error = e.message;
-        if (e.statusCode == 401) _error = 'Login yoki parol noto\'g\'ri';
+        if (e.statusCode == 401) {
+          _error = 'Login yoki parol noto\'g\'ri';
+        } else {
+          _error = e.message;
+        }
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -230,7 +261,36 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 20),
 
-                        // ── Xatolik ────────────────────────────────────────
+                        // ── Offline ogohlantirish (sariq) ─────────────────
+                        if (_warning != null) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF8E1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: const Color(0xFFFFB300).withAlpha(160)),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.wifi_off_rounded,
+                                    color: Color(0xFFFF8F00), size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                    child: Text(_warning!,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            color: Color(0xFF7B5800),
+                                            fontWeight: FontWeight.w500))),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        // ── Xatolik (qizil) ────────────────────────────────
                         if (_error != null) ...[
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -241,16 +301,19 @@ class _LoginScreenState extends State<LoginScreen> {
                               border:
                                   Border.all(color: AppColors.danger.withAlpha(80)),
                             ),
-                            child: Row(children: [
-                              const Icon(Icons.error_outline,
-                                  color: AppColors.danger, size: 16),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                  child: Text(_error!,
-                                      style: const TextStyle(
-                                          fontSize: 13,
-                                          color: AppColors.danger))),
-                            ]),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.error_outline,
+                                    color: AppColors.danger, size: 16),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                    child: Text(_error!,
+                                        style: const TextStyle(
+                                            fontSize: 13,
+                                            color: AppColors.danger))),
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 16),
                         ],
@@ -271,12 +334,20 @@ class _LoginScreenState extends State<LoginScreen> {
                               elevation: 0,
                             ),
                             child: _loading
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 2))
+                                ? const Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      SizedBox(
+                                          width: 18, height: 18,
+                                          child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2)),
+                                      SizedBox(width: 10),
+                                      Text('Tekshirilmoqda...',
+                                          style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 14)),
+                                    ])
                                 : const Text('Kirish',
                                     style: TextStyle(
                                         fontSize: 15,
