@@ -46,8 +46,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       // ── 1. Kafe topish (cloud → local avtomatik fallback) ───────────────
-      final primaryUrl = await AppConfig.getBaseUrl();
-      Api.resetActiveBase(); // Har safar yangi ulanish tekshiruvi
+      final primaryUrl = AppConfig.centralUrl; // Har doim markaziy server
+      Api.resetActiveBase();
 
       final cafeRes = await Api.get(
           'auth/cafe?q=${Uri.encodeComponent(_cafeCtrl.text.trim())}');

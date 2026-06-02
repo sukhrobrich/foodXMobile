@@ -11,9 +11,8 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final _formKey    = GlobalKey<FormState>();
-  final _urlCtrl    = TextEditingController();
-  final _localCtrl  = TextEditingController();
+  final _formKey   = GlobalKey<FormState>();
+  final _localCtrl = TextEditingController();
 
   bool    _loading   = false;
   String? _statusMsg;
@@ -27,14 +26,12 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _load() async {
-    final custom   = await AppConfig.isUsingCustomUrl();
-    final url      = await AppConfig.getBaseUrl();
     final localUrl = await AppConfig.getLocalUrl();
     setState(() {
-      _isCustom = custom;
-      // Har doim joriy URL ni ko'rsatamiz (custom bo'lmasa ham)
-      _urlCtrl.text = url;
-      if (localUrl != null && localUrl.isNotEmpty) _localCtrl.text = localUrl;
+      if (localUrl != null && localUrl.isNotEmpty) {
+        _localCtrl.text = localUrl;
+        _isCustom = true;
+      }
     });
   }
 
@@ -48,32 +45,30 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _test() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _statusMsg = null; });
-    final tid      = await AppConfig.getTenantId();
-    final primary  = _normalize(_urlCtrl.text);
+
     final localRaw = _localCtrl.text.trim();
-    final local    = localRaw.isNotEmpty ? _normalize(localRaw) : null;
+    final localUrl = localRaw.isNotEmpty ? _normalize(localRaw) : null;
+    final tid      = await AppConfig.getTenantId();
 
-    final okPrimary = await Api.testConnection(primary, tid);
-    final okLocal   = local != null ? await Api.testConnection(local, tid) : null;
-
-    setState(() {
-      _loading = false;
-      if (okPrimary) {
-        _statusOk  = true;
-        _statusMsg = '✓ Online server ulandi: $primary';
-      } else if (okLocal == true) {
-        _statusOk  = true;
-        _statusMsg = '✓ Offline server ulandi: $local';
-      } else {
+    if (localUrl != null) {
+      final ok = await Api.testConnection(localUrl, tid);
+      setState(() {
+        _loading = false;
+        _statusOk  = ok;
+        _statusMsg = ok
+            ? '✓ Wi-Fi server ulandi: $localUrl'
+            : 'Ulanib bo\'lmadi. IP va port to\'g\'riligini tekshiring.';
+      });
+    } else {
+      setState(() {
+        _loading = false;
         _statusOk  = false;
-        _statusMsg = 'Ulanib bo\'lmadi. IP va port tekshiring.';
-      }
-    });
+        _statusMsg = 'IP manzil kiriting.';
+      });
+    }
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    await AppConfig.setBaseUrl(_normalize(_urlCtrl.text));
     final localRaw = _localCtrl.text.trim();
     if (localRaw.isNotEmpty) {
       await AppConfig.setLocalUrl(_normalize(localRaw));
@@ -86,7 +81,8 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _resetToDefault() async {
-    await AppConfig.resetToDefault();
+    await AppConfig.clearLocalUrl();
+    Api.resetActiveBase();
     if (!mounted) return;
     Navigator.of(context).pop();
   }
@@ -117,112 +113,72 @@ class _SetupScreenState extends State<SetupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Izoh banner
+                // Markaziy server info
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryLight,
+                    color: const Color(0xFFE8F5E9),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: AppColors.primary.withAlpha(60)),
+                    border: Border.all(color: AppColors.success.withAlpha(80)),
                   ),
-                  child: const Row(
+                  child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline,
-                          color: AppColors.primary, size: 18),
-                      SizedBox(width: 10),
+                      const Icon(Icons.cloud_done_outlined,
+                          color: AppColors.success, size: 18),
+                      const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          'Internet bo\'lmasa, Windows kompyuter bilan bir xil Wi-Fi tarmoqda bo\'lsangiz, '
-                          'kompyuterning IP manziliga to\'g\'ridan-to\'g\'ri ulanish mumkin.',
-                          style: TextStyle(
-                              fontSize: 12, color: AppColors.primary),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Markaziy server (internet)',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.success)),
+                            const SizedBox(height: 2),
+                            Text(AppConfig.centralUrl,
+                                style: const TextStyle(
+                                    fontSize: 11, color: AppColors.success)),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
 
-                const Text('Mahalliy server manzili',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textMuted)),
-                const SizedBox(height: 6),
-                TextFormField(
-                  controller: _urlCtrl,
-                  keyboardType: TextInputType.url,
-                  decoration: InputDecoration(
-                    hintText: '192.168.1.100:5050',
-                    hintStyle: const TextStyle(
-                        color: AppColors.textMuted, fontSize: 13),
-                    prefixIcon: const Icon(Icons.wifi,
-                        color: AppColors.textMuted, size: 20),
-                    filled: true,
-                    fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 14),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: AppColors.border)),
-                    enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: AppColors.border)),
-                    focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(
-                            color: AppColors.primary, width: 1.5)),
+                // Wi-Fi divider
+                Row(children: [
+                  const Expanded(child: Divider()),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Text('Yoki — bir xil Wi-Fi tarmoqida bo\'lsangiz',
+                        style: TextStyle(
+                            fontSize: 11, color: AppColors.textMuted)),
                   ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'IP manzil kiriting';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 10),
-
-                // Tezkor misollar
-                Wrap(spacing: 8, children: [
-                  for (final ip in ['192.168.35', '192.168.1', '192.168.0', '10.0.0'])
-                    ActionChip(
-                      label: Text('$ip.x:5050',
-                          style: const TextStyle(fontSize: 11)),
-                      backgroundColor: ip == '192.168.35'
-                          ? AppColors.primaryLight
-                          : AppColors.bg,
-                      side: BorderSide(
-                          color: ip == '192.168.35'
-                              ? AppColors.primary
-                              : AppColors.border),
-                      onPressed: () => _urlCtrl.text = '$ip.',
-                    ),
+                  const Expanded(child: Divider()),
                 ]),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
 
-                // Offline (Windows PC) URL
-                const Text('Offline server manzili (ixtiyoriy)',
+                const Text('Kompyuter Wi-Fi IP manzili',
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textMuted)),
                 const SizedBox(height: 4),
                 const Text(
-                    'Online server javob bermasa avtomatik shu manzilga ulanadi.',
+                    'Markaziy server ishlamasa, kompyuter bilan bir xil Wi-Fi da bo\'lib ulanish uchun.',
                     style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 TextFormField(
                   controller: _localCtrl,
                   keyboardType: TextInputType.url,
                   decoration: InputDecoration(
-                    hintText: '192.168.35.252:5050',
+                    hintText: '192.168.35.100:5050',
                     hintStyle: const TextStyle(
                         color: AppColors.textMuted, fontSize: 13),
-                    prefixIcon: const Icon(Icons.computer,
+                    prefixIcon: const Icon(Icons.computer_outlined,
                         color: AppColors.textMuted, size: 20),
                     filled: true,
                     fillColor: Colors.white,
@@ -242,6 +198,20 @@ class _SetupScreenState extends State<SetupScreen> {
                             color: AppColors.primary, width: 1.5)),
                   ),
                 ),
+                const SizedBox(height: 8),
+
+                // Tezkor misollar
+                Wrap(spacing: 8, children: [
+                  for (final ip in ['192.168.35', '192.168.1', '192.168.0'])
+                    ActionChip(
+                      label: Text('$ip.x:5050',
+                          style: const TextStyle(fontSize: 11)),
+                      backgroundColor: AppColors.bg,
+                      side: const BorderSide(color: AppColors.border),
+                      onPressed: () =>
+                          setState(() => _localCtrl.text = '$ip.'),
+                    ),
+                ]),
                 const SizedBox(height: 20),
 
                 // Status xabar
@@ -326,21 +296,26 @@ class _SetupScreenState extends State<SetupScreen> {
                   ),
                 ]),
 
-                // Markaziy serverga qaytish (agar custom URL bo'lsa)
+                // Wi-Fi manzilini o'chirish (agar sozlangan bo'lsa)
                 if (_isCustom) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     child: TextButton.icon(
-                      onPressed: _resetToDefault,
+                      onPressed: () {
+                        setState(() {
+                          _localCtrl.clear();
+                          _isCustom = false;
+                        });
+                        _resetToDefault();
+                      },
                       style: TextButton.styleFrom(
-                        foregroundColor: AppColors.danger,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 14),
+                        foregroundColor: AppColors.textMuted,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
                       ),
-                      icon: const Icon(Icons.cloud_outlined, size: 16),
+                      icon: const Icon(Icons.wifi_off_outlined, size: 16),
                       label: const Text(
-                          'Markaziy serverga qaytish',
+                          'Wi-Fi sozlamasini o\'chirish',
                           style: TextStyle(fontSize: 13)),
                     ),
                   ),
