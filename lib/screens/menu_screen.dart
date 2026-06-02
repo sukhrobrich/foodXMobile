@@ -20,6 +20,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   List<FoodCategory> _categories   = [];
   List<Food>         _foods        = [];
   List<OrderItem>    _order        = [];
+  Map<int, int>      _savedQty     = {}; // foodId → DB dagi saqlangan miqdor
   int?               _selectedCat;
   int?               _existingOrderId;
 
@@ -29,17 +30,36 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   String? _error;
   String  _search     = '';
 
+  // Ruxsat sozlamalari
+  String  _userRole       = '';
+  bool    _canDelete      = false; // kamaytirish/o'chirish ruxsati
+  bool    _settingsLoaded = false;
+
   Timer?  _timer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadSettings();
     _load();
-    // Har 30 soniyada mavjud buyurtma itemlarini yangilaydi
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (mounted && _existingOrderId != null) _refreshOrderItems();
     });
+  }
+
+  Future<void> _loadSettings() async {
+    _userRole = (await AppConfig.getUserRole()) ?? '';
+    if (_userRole == 'admin') {
+      _canDelete = true;
+    } else {
+      try {
+        final key = _userRole == 'kassir' ? 'kassir_delete' : 'waiter_delete';
+        final res = await Api.get('settings/value?key=$key');
+        _canDelete = (res['value'] ?? '') == '1';
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _settingsLoaded = true);
   }
 
   @override
@@ -98,16 +118,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       final orderData = await Api.get('orders/$_existingOrderId');
       final items = (orderData['items'] as List?) ?? [];
       if (mounted) {
+        final newOrder = items.map((i) {
+          final m = i as Map<String, dynamic>;
+          return OrderItem(
+            foodId:   m['food_id'] as int,
+            foodName: (m['food_name'] ?? '').toString(),
+            price:    (m['selling_price'] ?? 0).toDouble(),
+            quantity: (m['quantity'] as num).toInt(),
+          );
+        }).toList();
+
+        // Saqlangan miqdorlarni eslatib qo'yamiz (kamaytirish cheklanishi uchun)
+        final savedQty = <int, int>{};
+        for (final item in newOrder) {
+          savedQty[item.foodId] = item.quantity;
+        }
+
         setState(() {
-          _order = items.map((i) {
-            final m = i as Map<String, dynamic>;
-            return OrderItem(
-              foodId:   m['food_id'] as int,
-              foodName: (m['food_name'] ?? '').toString(),
-              price:    (m['selling_price'] ?? 0).toDouble(),
-              quantity: (m['quantity'] as num).toInt(),
-            );
-          }).toList();
+          _order    = newOrder;
+          _savedQty = savedQty;
         });
       }
     } catch (_) {}
@@ -149,6 +178,25 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   void _decrement(Food food) {
+    final currentQty = _qty(food);
+    final saved      = _savedQty[food.id] ?? 0;
+
+    // Saqlangan miqdordan pastga tushmoqchi + ruxsat yo'q
+    if (!_canDelete && saved > 0 && currentQty <= saved) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          _userRole == 'kassir'
+              ? 'Kassirda mahsulot kamaytirish ruxsati yo\'q'
+              : 'Mahsulot kamaytirish/o\'chirish ruxsati yo\'q',
+        ),
+        backgroundColor: AppColors.danger,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ));
+      return;
+    }
+
     setState(() {
       final idx = _order.indexWhere((i) => i.foodId == food.id);
       if (idx >= 0) {

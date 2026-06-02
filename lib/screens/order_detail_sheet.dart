@@ -184,6 +184,9 @@ class _OrderDetailSheetState extends State<OrderDetailSheet> {
     final double itemsSum = _items.fold(
         0.0, (s, i) => s + ((i['subtotal'] ?? 0.0) as num).toDouble());
 
+    // Grand total: items + service fee - discount (orderTotal dan emas)
+    final double grandTotal = itemsSum + svcFee - discAmt;
+
     final String statusLabel;
     final Color  statusColor;
     if (paid == 'YES') {
@@ -350,7 +353,7 @@ class _OrderDetailSheetState extends State<OrderDetailSheet> {
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
                         color: AppColors.textDark)),
-                Text(_fmt(total),
+                Text(_fmt(grandTotal),
                     style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 20,
