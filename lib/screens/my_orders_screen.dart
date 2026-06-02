@@ -23,7 +23,8 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
   bool         _loading     = true;
   bool         _refreshing  = false;
   String?      _error;
-  String       _filter      = 'NO';
+  String       _filter      = 'NO'; // 'NO' | 'YES'
+  DateTime     _selectedDate = DateTime.now();
 
   String       _userRole    = '';
   bool         _anyoneClose = false;
@@ -39,7 +40,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
     WidgetsBinding.instance.addObserver(this);
     _init();
     _timer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (mounted && _filter == 'NO') _silentRefresh();
+      if (mounted) _silentRefresh();
     });
   }
 
@@ -64,6 +65,11 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
     _load();
   }
 
+  String get _dateParam {
+    final d = _selectedDate;
+    return '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+  }
+
   Future<void> _load() async {
     if (!mounted) return;
     setState(() { _loading = true; _error = null; });
@@ -80,8 +86,9 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
 
   Future<void> _fetch() async {
     try {
-      final data =
-          await Api.get('orders/mine?paid=$_filter&pageSize=50') as List;
+      final paid = _filter == 'ALL' ? '' : '&paid=$_filter';
+      final data = await Api.get(
+          'orders/mine?date=$_dateParam$paid&pageSize=100') as List;
       if (!mounted) return;
       setState(() {
         _orders = data
@@ -90,9 +97,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
         _error  = null;
       });
     } on ApiException catch (e) {
-      if (mounted && _orders.isEmpty) {
-        setState(() => _error = e.message);
-      }
+      if (mounted && _orders.isEmpty) setState(() => _error = e.message);
     }
   }
 
@@ -102,11 +107,71 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
     _load();
   }
 
+  void _prevDay() {
+    setState(() => _selectedDate =
+        _selectedDate.subtract(const Duration(days: 1)));
+    _load();
+  }
+
+  void _nextDay() {
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    if (_selectedDate.isBefore(DateTime(tomorrow.year, tomorrow.month, tomorrow.day))) {
+      setState(() => _selectedDate =
+          _selectedDate.add(const Duration(days: 1)));
+      _load();
+    }
+  }
+
+  Future<void> _pickDate() async {
+    final now    = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate:   DateTime(now.year - 1),
+      lastDate:    now,
+      locale: const Locale('uz'),
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.light(
+            primary:   AppColors.primary,
+            onPrimary: Colors.white,
+            surface:   Colors.white,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() => _selectedDate = picked);
+      _load();
+    }
+  }
+
+  bool get _isToday {
+    final n = DateTime.now();
+    return _selectedDate.year  == n.year &&
+           _selectedDate.month == n.month &&
+           _selectedDate.day   == n.day;
+  }
+
+  String get _dateLabel {
+    if (_isToday) return 'Bugun';
+    final n = DateTime.now().subtract(const Duration(days: 1));
+    if (_selectedDate.year  == n.year &&
+        _selectedDate.month == n.month &&
+        _selectedDate.day   == n.day)   return 'Kecha';
+    final d = _selectedDate;
+    return '${d.day.toString().padLeft(2,'0')}.'
+        '${d.month.toString().padLeft(2,'0')}.'
+        '${d.year}';
+  }
+
   bool get _canPay =>
       _userRole == 'admin' || _userRole == 'kassir' || _anyoneClose;
 
+  // ── Receipt ───────────────────────────────────────────────────────────────
+
   Future<void> _showReceipt(_Order order) async {
-    // Buyurtma itemlarini API dan yuklaymiz
     List<OrderItem> items = [];
     try {
       final data = await Api.get('orders/${order.id}');
@@ -121,30 +186,25 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
         );
       }).toList();
     } catch (_) {}
-
     if (!mounted) return;
-    ReceiptDialog.show(
-      context,
-      placeName: order.placeName,
-      orderId:   order.id,
-      items:     items,
-      total:     order.total,
-    );
+    ReceiptDialog.show(context,
+        placeName: order.placeName,
+        orderId:   order.id,
+        items:     items,
+        total:     order.total);
   }
 
+  // ── Pay ───────────────────────────────────────────────────────────────────
+
   Future<void> _payOrder(_Order order) async {
-    // To'lov turlarini olish
     List<_PayMethod> methods = [];
     try {
       final data = await Api.get('payments') as List;
       methods = data
-          .map((j) => _PayMethod(
-                id: j['id'] as int,
-                name: (j['name'] ?? '').toString(),
-              ))
+          .map((j) => _PayMethod(id: j['id'] as int,
+                                  name: (j['name'] ?? '').toString()))
           .toList();
     } catch (_) {}
-
     if (!mounted) return;
 
     final result = await showDialog<Map<String, dynamic>>(
@@ -174,6 +234,8 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
       ));
     }
   }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -209,19 +271,95 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
       ),
       body: Column(
         children: [
+          // ── Sana tanlash ────────────────────────────────────────────
           Container(
             color: Colors.white,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Row(children: [
-              _RadioBtn(
+              // Oldingi kun
+              _NavBtn(
+                icon: Icons.chevron_left,
+                onTap: _prevDay,
+              ),
+              const SizedBox(width: 4),
+
+              // Sana - taqvim ochadi
+              Expanded(
+                child: GestureDetector(
+                  onTap: _pickDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _isToday
+                          ? AppColors.primaryLight
+                          : AppColors.bg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: _isToday
+                              ? AppColors.primary
+                              : AppColors.border),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.calendar_month,
+                            size: 16,
+                            color: _isToday
+                                ? AppColors.primary
+                                : AppColors.textMuted),
+                        const SizedBox(width: 8),
+                        Text(
+                          _dateLabel,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            color: _isToday
+                                ? AppColors.primary
+                                : AppColors.textDark,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.arrow_drop_down,
+                            size: 18,
+                            color: _isToday
+                                ? AppColors.primary
+                                : AppColors.textMuted),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 4),
+              // Keyingi kun (bugundan o'tib bo'lmaydi)
+              _NavBtn(
+                icon: Icons.chevron_right,
+                onTap: _isToday ? null : _nextDay,
+              ),
+            ]),
+          ),
+
+          // ── Status filter ────────────────────────────────────────────
+          Container(
+            color: Colors.white,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Row(children: [
+              _FilterChip(
+                label: 'Barchasi',
+                active: _filter == 'ALL',
+                color: AppColors.textDark,
+                onTap: () => _setFilter('ALL'),
+              ),
+              const SizedBox(width: 8),
+              _FilterChip(
                 label: 'Ochiq',
                 active: _filter == 'NO',
                 color: AppColors.primary,
                 onTap: () => _setFilter('NO'),
               ),
-              const SizedBox(width: 10),
-              _RadioBtn(
+              const SizedBox(width: 8),
+              _FilterChip(
                 label: 'Yopiq',
                 active: _filter == 'YES',
                 color: AppColors.success,
@@ -234,6 +372,10 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
                         fontSize: 12, color: AppColors.textMuted)),
             ]),
           ),
+
+          Container(height: 1, color: AppColors.border),
+
+          // ── Ro'yxat ──────────────────────────────────────────────────
           Expanded(
             child: _loading
                 ? const Center(
@@ -246,71 +388,22 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
                         : RefreshIndicator(
                             color: AppColors.primary,
                             onRefresh: _load,
-                            child: _buildGroupedList(),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(
+                                  16, 12, 16, 24),
+                              itemCount: _orders.length,
+                              itemBuilder: (_, i) => _OrderCard(
+                                order: _orders[i],
+                                canPay: _canPay && _orders[i].paid == 'NO',
+                                onPay: () => _payOrder(_orders[i]),
+                                onReceipt: () => _showReceipt(_orders[i]),
+                              ),
+                            ),
                           ),
           ),
         ],
       ),
     );
-  }
-
-  // Buyurtmalarni sana bo'yicha guruhlash
-  Widget _buildGroupedList() {
-    // { 'dateKey': [orders] }
-    final Map<String, List<_Order>> groups = {};
-    for (final o in _orders) {
-      final key = _dateKey(o.createdAt);
-      groups.putIfAbsent(key, () => []).add(o);
-    }
-
-    // Kalitlarni tartiblab olamiz (yangi birinchi)
-    final keys = groups.keys.toList();
-
-    // Umumiy item soni: har bir guruh uchun 1 header + N karta
-    final totalItems = keys.fold<int>(
-        0, (sum, k) => sum + 1 + (groups[k]?.length ?? 0));
-
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: totalItems,
-      itemBuilder: (_, idx) {
-        // idx → qaysi guruh, qaysi karta
-        int cursor = 0;
-        for (final key in keys) {
-          final list = groups[key]!;
-          if (idx == cursor) {
-            // Sana sarlavhasi
-            return _DateHeader(label: key);
-          }
-          cursor++;
-          if (idx < cursor + list.length) {
-            final order = list[idx - cursor];
-            return _OrderCard(
-              order: order,
-              canPay: _canPay && order.paid == 'NO',
-              onPay: () => _payOrder(order),
-              onReceipt: () => _showReceipt(order),
-            );
-          }
-          cursor += list.length;
-        }
-        return const SizedBox.shrink();
-      },
-    );
-  }
-
-  // Sana kalitini hosil qiladi: "Bugun", "Kecha", "02.06.2026"
-  String _dateKey(DateTime dt) {
-    final local = dt.toLocal();
-    final now   = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final d     = DateTime(local.year, local.month, local.day);
-    final diff  = today.difference(d).inDays;
-    if (diff == 0) return 'Bugun';
-    if (diff == 1) return 'Kecha';
-    return '${d.day.toString().padLeft(2,'0')}.'
-        '${d.month.toString().padLeft(2,'0')}.'
-        '${d.year}';
   }
 
   Widget _buildError() => Center(
@@ -339,19 +432,80 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
   Widget _buildEmpty() => Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(
-              _filter == 'NO'
-                  ? Icons.receipt_long_outlined
-                  : Icons.check_circle_outline,
+              _filter == 'YES'
+                  ? Icons.check_circle_outline
+                  : Icons.receipt_long_outlined,
               size: 56,
               color: AppColors.border),
           const SizedBox(height: 12),
           Text(
-              _filter == 'NO'
-                  ? 'Ochiq buyurtma yo\'q'
-                  : 'Yopiq buyurtma yo\'q',
+              '$_dateLabel kuni buyurtma yo\'q',
               style: const TextStyle(
                   color: AppColors.textMuted, fontSize: 15)),
         ]),
+      );
+}
+
+// ── Kichik navigatsiya tugmasi ────────────────────────────────────────────────
+
+class _NavBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _NavBtn({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(
+            color: onTap == null ? AppColors.bg : AppColors.bg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Icon(icon,
+              size: 22,
+              color: onTap == null
+                  ? AppColors.border
+                  : AppColors.textDark),
+        ),
+      );
+}
+
+// ── Filter chip ───────────────────────────────────────────────────────────────
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.active,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? color.withAlpha(20) : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+                color: active ? color : AppColors.border, width: 1.5),
+          ),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight:
+                      active ? FontWeight.bold : FontWeight.normal,
+                  color: active ? color : AppColors.textMuted)),
+        ),
       );
 }
 
@@ -360,7 +514,6 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
 class _PayDialog extends StatefulWidget {
   final _Order order;
   final List<_PayMethod> methods;
-
   const _PayDialog({required this.order, required this.methods});
 
   @override
@@ -369,8 +522,6 @@ class _PayDialog extends StatefulWidget {
 
 class _PayDialogState extends State<_PayDialog> {
   int? _selectedMethodId;
-  final _amountCtrl = TextEditingController();
-  bool _splitPay = false;
 
   @override
   void initState() {
@@ -378,13 +529,6 @@ class _PayDialogState extends State<_PayDialog> {
     if (widget.methods.isNotEmpty) {
       _selectedMethodId = widget.methods.first.id;
     }
-    _amountCtrl.text = widget.order.total.toStringAsFixed(0);
-  }
-
-  @override
-  void dispose() {
-    _amountCtrl.dispose();
-    super.dispose();
   }
 
   @override
@@ -424,38 +568,29 @@ class _PayDialogState extends State<_PayDialog> {
             const SizedBox(height: 8),
             if (widget.methods.isEmpty)
               const Text('To\'lov turlari topilmadi',
-                  style:
-                      TextStyle(fontSize: 13, color: AppColors.textMuted))
+                  style: TextStyle(fontSize: 13, color: AppColors.textMuted))
             else
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 8, runSpacing: 8,
                 children: widget.methods.map((m) {
                   final sel = _selectedMethodId == m.id;
                   return GestureDetector(
-                    onTap: () =>
-                        setState(() => _selectedMethodId = m.id),
+                    onTap: () => setState(() => _selectedMethodId = m.id),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 120),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
-                        color: sel
-                            ? AppColors.primary
-                            : AppColors.bg,
+                        color: sel ? AppColors.primary : AppColors.bg,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: sel
-                                ? AppColors.primary
-                                : AppColors.border),
+                            color: sel ? AppColors.primary : AppColors.border),
                       ),
                       child: Text(m.name,
                           style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                              color: sel
-                                  ? Colors.white
-                                  : AppColors.textDark)),
+                              color: sel ? Colors.white : AppColors.textDark)),
                     ),
                   );
                 }).toList(),
@@ -472,12 +607,7 @@ class _PayDialogState extends State<_PayDialog> {
         ElevatedButton.icon(
           onPressed: () {
             final payments = _selectedMethodId != null
-                ? [
-                    {
-                      'paymentId': _selectedMethodId!,
-                      'amount': widget.order.total,
-                    }
-                  ]
+                ? [{'paymentId': _selectedMethodId!, 'amount': widget.order.total}]
                 : <Map<String, dynamic>>[];
             Navigator.pop(context, {'payments': payments});
           },
@@ -492,54 +622,6 @@ class _PayDialogState extends State<_PayDialog> {
               style: TextStyle(fontWeight: FontWeight.bold)),
         ),
       ],
-    );
-  }
-}
-
-// ── Radio tugma ───────────────────────────────────────────────────────────────
-
-class _RadioBtn extends StatelessWidget {
-  final String label;
-  final bool active;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _RadioBtn({
-    required this.label,
-    required this.active,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: active ? color.withAlpha(20) : AppColors.bg,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-              color: active ? color : AppColors.border, width: 1.5),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(
-              active
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_off,
-              size: 18,
-              color: active ? color : AppColors.textMuted),
-          const SizedBox(width: 6),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight:
-                      active ? FontWeight.bold : FontWeight.normal,
-                  color: active ? color : AppColors.textMuted)),
-        ]),
-      ),
     );
   }
 }
@@ -565,6 +647,7 @@ class _OrderCard extends StatelessWidget {
     final sColor = isOpen ? AppColors.primary : AppColors.success;
     final sBg    = isOpen ? AppColors.primaryLight : AppColors.successLight;
     final sLabel = isOpen ? 'Ochiq' : 'To\'langan';
+    final timeStr = _time(order.createdAt);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -621,7 +704,7 @@ class _OrderCard extends StatelessWidget {
                   ]),
                   const SizedBox(height: 3),
                   Text(
-                      '${order.itemsCount} ta taom  •  ${_fmt(order.createdAt)}',
+                      '${order.itemsCount} ta taom  •  $timeStr',
                       style: const TextStyle(
                           fontSize: 12, color: AppColors.textMuted)),
                 ],
@@ -631,13 +714,10 @@ class _OrderCard extends StatelessWidget {
                 style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
-                    color: isOpen
-                        ? AppColors.primary
-                        : AppColors.textDark)),
+                    color: isOpen ? AppColors.primary : AppColors.textDark)),
           ]),
           const SizedBox(height: 10),
           Row(children: [
-            // Shot tugmasi — doim ko'rinadi
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: onReceipt,
@@ -649,8 +729,7 @@ class _OrderCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 8),
                 ),
                 icon: const Icon(Icons.receipt_outlined, size: 15),
-                label: const Text('Shot',
-                    style: TextStyle(fontSize: 13)),
+                label: const Text('Shot', style: TextStyle(fontSize: 13)),
               ),
             ),
             if (canPay) ...[
@@ -680,15 +759,14 @@ class _OrderCard extends StatelessWidget {
     );
   }
 
-  // Faqat soat:daqiqa ko'rsatadi (sana header da ko'rsatiladi)
-  String _fmt(DateTime dt) {
+  String _time(DateTime dt) {
     final local = dt.toLocal();
     return '${local.hour.toString().padLeft(2,'0')}:'
         '${local.minute.toString().padLeft(2,'0')}';
   }
 }
 
-// ── Yordamchi modellar ────────────────────────────────────────────────────────
+// ── Modellar ──────────────────────────────────────────────────────────────────
 
 class _PayMethod {
   final int id;
@@ -727,35 +805,4 @@ class _Order {
         total:      (j['total'] ?? 0).toDouble(),
         itemsCount: (j['items_count'] ?? 0) as int,
       );
-}
-// ── Sana sarlavhasi ───────────────────────────────────────────────────────────
-
-class _DateHeader extends StatelessWidget {
-  final String label;
-  const _DateHeader({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-            color: AppColors.textDark,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            label,
-            style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.white),
-          ),
-        ),
-        const SizedBox(width: 10),
-        const Expanded(child: Divider(color: AppColors.border, height: 1)),
-      ]),
-    );
-  }
 }

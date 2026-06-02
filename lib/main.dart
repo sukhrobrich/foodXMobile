@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/colors.dart';
 import 'screens/splash_screen.dart';
 
@@ -14,6 +15,13 @@ class FoodXApp extends StatelessWidget {
     return MaterialApp(
       title: 'FoodX Ofitsiant',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('uz'), Locale('ru'), Locale('en')],
+      locale: const Locale('ru'), // Taqvim rus tilida (o'zbek ko'rinishi uchun)
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
         fontFamily: 'Roboto',
