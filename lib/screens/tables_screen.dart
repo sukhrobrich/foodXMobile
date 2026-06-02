@@ -77,10 +77,11 @@ class _TablesTabState extends State<_TablesTab> with WidgetsBindingObserver {
   List<String> _zones     = [];
   String? _selectedZone;
 
-  String _userName = '';
-  String _cafeName = '';
-  String _userRole = '';
-  int    _userId   = 0;
+  String _userName    = '';
+  String _cafeName    = '';
+  String _userRole    = '';
+  int    _userId      = 0;
+  bool   _anyoneClose = false;
 
   bool   _loading    = true;   // birinchi yuklash
   bool   _refreshing = false;  // background refresh
@@ -115,6 +116,10 @@ class _TablesTabState extends State<_TablesTab> with WidgetsBindingObserver {
     _cafeName = (await AppConfig.getCafeName()) ?? '';
     _userRole = (await AppConfig.getUserRole()) ?? '';
     _userId   = await AppConfig.getUserId();
+    try {
+      final res = await Api.get('settings/value?key=order_anyone_close');
+      _anyoneClose = (res['value'] ?? '') == '1';
+    } catch (_) {}
     setState(() {});
     _load();
   }
@@ -172,6 +177,7 @@ class _TablesTabState extends State<_TablesTab> with WidgetsBindingObserver {
   bool _canOpen(Place place) {
     if (place.empty) return true;
     if (_userRole == 'admin' || _userRole == 'kassir') return true;
+    if (_anyoneClose) return true;
     return place.activeOrderUserId == null ||
         place.activeOrderUserId == _userId;
   }

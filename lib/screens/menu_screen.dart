@@ -54,9 +54,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       _canDelete = true;
     } else {
       try {
-        final key = _userRole == 'kassir' ? 'kassir_delete' : 'waiter_delete';
-        final res = await Api.get('settings/value?key=$key');
-        _canDelete = (res['value'] ?? '') == '1';
+        final masterRes = await Api.get('settings/value?key=order_remove_items');
+        if ((masterRes['value'] ?? '') == '1') {
+          final key = _userRole == 'kassir' ? 'kassir_delete' : 'waiter_delete';
+          final res = await Api.get('settings/value?key=$key');
+          _canDelete = (res['value'] ?? '') == '1';
+        }
       } catch (_) {}
     }
     if (mounted) setState(() {});
