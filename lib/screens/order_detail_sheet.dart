@@ -175,16 +175,22 @@ class _OrderDetailSheetState extends State<OrderDetailSheet> {
     final placeName   = (o['place_name'] ?? '').toString();
     final userName    = (o['user_name']  ?? '').toString();
     final paid        = (o['paid']       ?? 'NO').toString();
-    final total       = (o['total']      ?? 0.0).toDouble();
-    final svcFee      = (o['custom_svc_fee']  ?? 0.0).toDouble();
-    final discAmt     = (o['discount_amount'] ?? 0.0).toDouble();
-    final createdAt   = DateTime.tryParse(
+    final total          = (o['total']             ?? 0.0).toDouble();
+    final svcFeeRaw      = (o['custom_svc_fee']   ?? 0.0).toDouble();
+    final svcType        = (o['custom_svc_type']  ?? '').toString();
+    final discAmt        = (o['discount_amount']  ?? 0.0).toDouble();
+    final createdAt      = DateTime.tryParse(
             o['created_at']?.toString() ?? '')?.toLocal();
 
     final double itemsSum = _items.fold(
         0.0, (s, i) => s + ((i['subtotal'] ?? 0.0) as num).toDouble());
 
-    // Grand total: items + service fee - discount (orderTotal dan emas)
+    // '%' tipida raw qiymat foiz, qolganlarida (UZS, pct) haqiqiy summa
+    final double svcFee = svcType == '%'
+        ? double.parse((itemsSum * svcFeeRaw / 100).toStringAsFixed(0))
+        : svcFeeRaw;
+
+    // Grand total: items + service fee - discount
     final double grandTotal = itemsSum + svcFee - discAmt;
 
     final String statusLabel;
@@ -197,9 +203,12 @@ class _OrderDetailSheetState extends State<OrderDetailSheet> {
       statusLabel = 'Ochilgan'; statusColor = AppColors.primary;
     }
 
-    final double svcPct = (svcFee > 0 && itemsSum > 0)
-        ? (svcFee / (total - svcFee) * 100)
-        : 0;
+    // Foiz ko'rsatish uchun hisoblash
+    final double svcPct = svcType == '%'
+        ? svcFeeRaw
+        : (svcFee > 0 && (total - svcFee) > 0
+            ? (svcFee / (total - svcFee) * 100)
+            : 0);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
