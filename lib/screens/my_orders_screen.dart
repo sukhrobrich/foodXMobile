@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/config.dart';
 import '../core/api.dart';
-import '../models/order_item.dart';
-import 'receipt_dialog.dart';
+import 'order_detail_sheet.dart';
 
 class MyOrdersScreen extends StatefulWidget {
   const MyOrdersScreen({super.key});
@@ -172,26 +171,10 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
   // ── Receipt ───────────────────────────────────────────────────────────────
 
   Future<void> _showReceipt(_Order order) async {
-    List<OrderItem> items = [];
-    try {
-      final data = await Api.get('orders/${order.id}');
-      final raw  = (data['items'] as List?) ?? [];
-      items = raw.map((j) {
-        final m = j as Map<String, dynamic>;
-        return OrderItem(
-          foodId:   m['food_id'] as int,
-          foodName: (m['food_name'] ?? '').toString(),
-          price:    (m['selling_price'] ?? 0).toDouble(),
-          quantity: (m['quantity'] as num).toInt(),
-        );
-      }).toList();
-    } catch (_) {}
     if (!mounted) return;
-    ReceiptDialog.show(context,
-        placeName: order.placeName,
-        orderId:   order.id,
-        items:     items,
-        total:     order.total);
+    await OrderDetailSheet.show(context, orderId: order.id);
+    // Detail sheet to'landi deb refresh qilamiz (yopilgan bo'lishi mumkin)
+    _silentRefresh();
   }
 
   // ── Pay ───────────────────────────────────────────────────────────────────
@@ -728,8 +711,8 @@ class _OrderCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8)),
                   padding: const EdgeInsets.symmetric(vertical: 8),
                 ),
-                icon: const Icon(Icons.receipt_outlined, size: 15),
-                label: const Text('Shot', style: TextStyle(fontSize: 13)),
+                icon: const Icon(Icons.info_outline, size: 15),
+                label: const Text('Batafsil', style: TextStyle(fontSize: 13)),
               ),
             ),
             if (canPay) ...[

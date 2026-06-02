@@ -6,7 +6,7 @@ import '../models/place.dart';
 import '../models/food.dart';
 import '../models/food_category.dart';
 import '../models/order_item.dart';
-import 'receipt_dialog.dart';
+import 'order_detail_sheet.dart';
 
 class MenuScreen extends StatefulWidget {
   final Place place;
@@ -273,14 +273,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   }
 
   void _showReceipt() {
-    if (_existingOrderId == null && _order.isEmpty) return;
-    ReceiptDialog.show(
-      context,
-      placeName: widget.place.name,
-      orderId:   _existingOrderId,
-      items:     List.from(_order),
-      total:     _total,
-    );
+    if (_existingOrderId == null) return;
+    OrderDetailSheet.show(context, orderId: _existingOrderId!);
   }
 
   @override
@@ -322,12 +316,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-          // Shot chiqarish
+          // Batafsil
           if (_existingOrderId != null || _order.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.receipt_outlined,
+              icon: const Icon(Icons.info_outline,
                   color: AppColors.textDark, size: 22),
-              tooltip: 'Shot ko\'rish',
+              tooltip: 'Batafsil',
               onPressed: _showReceipt,
             ),
           if (_existingOrderId != null)
@@ -441,8 +435,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
                             borderRadius: BorderRadius.circular(12)),
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                       ),
-                      icon: const Icon(Icons.receipt_outlined, size: 18),
-                      label: const Text('Shot',
+                      icon: const Icon(Icons.info_outline, size: 18),
+                      label: const Text('Batafsil',
                           style: TextStyle(
                               fontWeight: FontWeight.w600, fontSize: 13)),
                     ),
