@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../core/colors.dart';
+import '../core/config.dart';
 import '../core/api.dart';
 import '../models/place.dart';
 import '../models/food.dart';
@@ -31,9 +32,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   String  _search     = '';
 
   // Ruxsat sozlamalari
-  String  _userRole       = '';
-  bool    _canDelete      = false; // kamaytirish/o'chirish ruxsati
-  bool    _settingsLoaded = false;
+  String  _userRole  = '';
+  bool    _canDelete = false;
 
   Timer?  _timer;
 
@@ -59,7 +59,7 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         _canDelete = (res['value'] ?? '') == '1';
       } catch (_) {}
     }
-    if (mounted) setState(() => _settingsLoaded = true);
+    if (mounted) setState(() {});
   }
 
   @override
