@@ -11,8 +11,9 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final _formKey   = GlobalKey<FormState>();
-  final _localCtrl = TextEditingController();
+  final _formKey    = GlobalKey<FormState>();
+  final _urlCtrl    = TextEditingController(); // Asosiy server (base_url)
+  final _localCtrl  = TextEditingController(); // WiFi fallback (local_url)
 
   bool    _loading   = false;
   String? _statusMsg;
@@ -26,12 +27,14 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _load() async {
+    final custom   = await AppConfig.isUsingCustomUrl();
+    final url      = await AppConfig.getBaseUrl();
     final localUrl = await AppConfig.getLocalUrl();
     setState(() {
-      if (localUrl != null && localUrl.isNotEmpty) {
+      _isCustom        = custom;
+      _urlCtrl.text    = url; // har doim ko'rsatamiz
+      if (localUrl != null && localUrl.isNotEmpty)
         _localCtrl.text = localUrl;
-        _isCustom = true;
-      }
     });
   }
 
@@ -45,30 +48,32 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _test() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _statusMsg = null; });
-
-    final localRaw = _localCtrl.text.trim();
-    final localUrl = localRaw.isNotEmpty ? _normalize(localRaw) : null;
     final tid      = await AppConfig.getTenantId();
+    final primary  = _normalize(_urlCtrl.text);
+    final localRaw = _localCtrl.text.trim();
+    final local    = localRaw.isNotEmpty ? _normalize(localRaw) : null;
 
-    if (localUrl != null) {
-      final ok = await Api.testConnection(localUrl, tid);
-      setState(() {
-        _loading = false;
-        _statusOk  = ok;
-        _statusMsg = ok
-            ? '✓ Wi-Fi server ulandi: $localUrl'
-            : 'Ulanib bo\'lmadi. IP va port to\'g\'riligini tekshiring.';
-      });
-    } else {
-      setState(() {
-        _loading = false;
+    final okPrimary = await Api.testConnection(primary, tid);
+    final okLocal   = local != null ? await Api.testConnection(local, tid) : null;
+
+    setState(() {
+      _loading = false;
+      if (okPrimary) {
+        _statusOk  = true;
+        _statusMsg = '✓ Asosiy server ulandi: $primary';
+      } else if (okLocal == true) {
+        _statusOk  = true;
+        _statusMsg = '✓ Wi-Fi server ulandi: $local';
+      } else {
         _statusOk  = false;
-        _statusMsg = 'IP manzil kiriting.';
-      });
-    }
+        _statusMsg = 'Ulanib bo\'lmadi. IP va port tekshiring.';
+      }
+    });
   }
 
   Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    await AppConfig.setBaseUrl(_normalize(_urlCtrl.text));
     final localRaw = _localCtrl.text.trim();
     if (localRaw.isNotEmpty) {
       await AppConfig.setLocalUrl(_normalize(localRaw));
@@ -81,6 +86,7 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _resetToDefault() async {
+    await AppConfig.resetToDefault();
     await AppConfig.clearLocalUrl();
     Api.resetActiveBase();
     if (!mounted) return;
@@ -113,69 +119,83 @@ class _SetupScreenState extends State<SetupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Markaziy server info
+                // Banner
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E9),
+                    color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.success.withAlpha(80)),
+                    border: Border.all(color: AppColors.primary.withAlpha(60)),
                   ),
-                  child: Row(
+                  child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.cloud_done_outlined,
-                          color: AppColors.success, size: 18),
-                      const SizedBox(width: 10),
+                      Icon(Icons.info_outline, color: AppColors.primary, size: 18),
+                      SizedBox(width: 10),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Markaziy server (internet)',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.success)),
-                            const SizedBox(height: 2),
-                            Text(AppConfig.centralUrl,
-                                style: const TextStyle(
-                                    fontSize: 11, color: AppColors.success)),
-                          ],
+                        child: Text(
+                          'Asosiy server manzilini kiriting. '
+                          'U javob bermasa, Wi-Fi (kompyuter IP) ga avtomatik ulanadi.',
+                          style: TextStyle(fontSize: 12, color: AppColors.primary),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
 
-                // Wi-Fi divider
-                Row(children: [
-                  const Expanded(child: Divider()),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Text('Yoki — bir xil Wi-Fi tarmoqida bo\'lsangiz',
-                        style: TextStyle(
-                            fontSize: 11, color: AppColors.textMuted)),
+                // ── Asosiy server ─────────────────────────────────────────
+                const Text('Asosiy server manzili',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textMuted)),
+                const SizedBox(height: 6),
+                TextFormField(
+                  controller: _urlCtrl,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    hintText: '192.168.35.230:5050',
+                    hintStyle: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 13),
+                    prefixIcon: const Icon(Icons.cloud_outlined,
+                        color: AppColors.textMuted, size: 20),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 14),
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: AppColors.border)),
+                    enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: AppColors.border)),
+                    focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(
+                            color: AppColors.primary, width: 1.5)),
                   ),
-                  const Expanded(child: Divider()),
-                ]),
-                const SizedBox(height: 16),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Manzil kiriting' : null,
+                ),
+                const SizedBox(height: 20),
 
-                const Text('Kompyuter Wi-Fi IP manzili',
+                // ── Wi-Fi / Kompyuter IP ──────────────────────────────────
+                const Text('Wi-Fi server manzili (ixtiyoriy)',
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textMuted)),
                 const SizedBox(height: 4),
                 const Text(
-                    'Markaziy server ishlamasa, kompyuter bilan bir xil Wi-Fi da bo\'lib ulanish uchun.',
+                    'Asosiy server javob bermasa, kompyuter bilan bir xil Wi-Fi da bo\'lib ulanish.',
                     style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 TextFormField(
                   controller: _localCtrl,
                   keyboardType: TextInputType.url,
                   decoration: InputDecoration(
-                    hintText: '192.168.35.100:5050',
+                    hintText: '192.168.35.252:5050',
                     hintStyle: const TextStyle(
                         color: AppColors.textMuted, fontSize: 13),
                     prefixIcon: const Icon(Icons.computer_outlined,
@@ -186,12 +206,10 @@ class _SetupScreenState extends State<SetupScreen> {
                         horizontal: 14, vertical: 14),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: AppColors.border)),
+                        borderSide: const BorderSide(color: AppColors.border)),
                     enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            const BorderSide(color: AppColors.border)),
+                        borderSide: const BorderSide(color: AppColors.border)),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(
@@ -296,26 +314,20 @@ class _SetupScreenState extends State<SetupScreen> {
                   ),
                 ]),
 
-                // Wi-Fi manzilini o'chirish (agar sozlangan bo'lsa)
+                // Default ga qaytish
                 if (_isCustom) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _localCtrl.clear();
-                          _isCustom = false;
-                        });
-                        _resetToDefault();
-                      },
+                      onPressed: _resetToDefault,
                       style: TextButton.styleFrom(
-                        foregroundColor: AppColors.textMuted,
-                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        foregroundColor: AppColors.danger,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      icon: const Icon(Icons.wifi_off_outlined, size: 16),
+                      icon: const Icon(Icons.cloud_outlined, size: 16),
                       label: const Text(
-                          'Wi-Fi sozlamasini o\'chirish',
+                          'Default sozlamalarga qaytish',
                           style: TextStyle(fontSize: 13)),
                     ),
                   ),

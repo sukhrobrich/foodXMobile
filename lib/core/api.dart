@@ -33,10 +33,11 @@ class Api {
   static void resetActiveBase() => _activeBase = null;
   static String? get activeBaseUrl => _activeBase;
 
-  // Markaziy serverga ulanish borligini tekshiradi (4 soniya)
+  // Asosiy serverga ulanish borligini tekshiradi (4 soniya)
   static Future<bool> isCloudReachable() async {
     try {
-      final clean = AppConfig.centralUrl.replaceAll(RegExp(r'/+$'), '');
+      final base  = await AppConfig.getBaseUrl();
+      final clean = base.replaceAll(RegExp(r'/+$'), '');
       await http.get(Uri.parse('$clean/')).timeout(const Duration(seconds: 4));
       return true;
     } catch (_) {
@@ -60,9 +61,9 @@ class Api {
   // Asosiy so'rov + ulanmasa local URL ga fallback
   static Future<http.Response> _send(
       Future<http.Response> Function(String base) request) async {
-    // PRIMARY: har doim markaziy server (internet)
-    // LOCAL:   foydalanuvchi sozlagan WiFi server (kompyuter IP)
-    final primary = AppConfig.centralUrl;
+    // PRIMARY: foydalanuvchi sozlagan URL (yoki default centralUrl)
+    // LOCAL:   ikkinchi fallback — WiFi orqali kompyuter IP
+    final primary = await AppConfig.getBaseUrl();
     final local   = await AppConfig.getLocalUrl();
 
     // Aktiv URL belgilangan bo'lsa — to'g'ri ishlatamiz
