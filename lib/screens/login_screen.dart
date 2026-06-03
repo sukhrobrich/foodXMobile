@@ -29,7 +29,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String? _warning;
 
   // ── Offline ───────────────────────────────────────────
-  final _ipCtrl = TextEditingController();
+  final _ipCtrl   = TextEditingController();
+  final _portCtrl = TextEditingController(text: '5050');
   bool    _offLoading   = false;
   String? _offError;
   List<dynamic> _staff  = [];
@@ -49,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _loginCtrl.dispose();
     _passCtrl.dispose();
     _ipCtrl.dispose();
+    _portCtrl.dispose();
     super.dispose();
   }
 
@@ -149,10 +151,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Offline: ulanish ──────────────────────────────────
   String _buildUrl(String ip) {
-    final s = ip.trim();
+    final s    = ip.trim();
+    final port = _portCtrl.text.trim().isEmpty ? '5050' : _portCtrl.text.trim();
     if (s.isEmpty) return AppConfig.centralUrl;
     if (s.startsWith('http://') || s.startsWith('https://')) return s;
-    return 'http://$s:5050';
+    return 'http://$s:$port';
   }
 
   Future<void> _offConnect() async {
@@ -626,42 +629,115 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Offline kontent ───────────────────────────────────
   Widget _buildOfflineContent() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFB300).withAlpha(120)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.wifi_off_rounded,
-              color: Color(0xFFFF8F00), size: 28),
-          const SizedBox(width: 14),
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Asosiy kompyuter faol emas',
-                  style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF7B4F00)),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'Kechirasiz, hozirda asosiy kompyuteringiz '
-                  '(online emas) faol holatda emas.',
-                  style: TextStyle(
-                      fontSize: 13, color: Color(0xFF7B5800)),
-                ),
-              ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // IP + Port qatori
+        Row(children: [
+          Expanded(
+            flex: 3,
+            child: TextField(
+              controller: _ipCtrl,
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _offConnect(),
+              decoration: InputDecoration(
+                hintText: '192.168.X.X',
+                hintStyle: const TextStyle(
+                    color: AppColors.textMuted, fontSize: 13),
+                prefixIcon: const Icon(Icons.computer_outlined,
+                    color: AppColors.textMuted, size: 20),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 14),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide:
+                        const BorderSide(color: AppColors.border)),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide:
+                        const BorderSide(color: AppColors.border)),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                        color: AppColors.primary, width: 1.5)),
+              ),
             ),
           ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 1,
+            child: TextField(
+              controller: _portCtrl,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _offConnect(),
+              textAlign: TextAlign.center,
+              decoration: InputDecoration(
+                hintText: '5050',
+                hintStyle: const TextStyle(
+                    color: AppColors.textMuted, fontSize: 13),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 14),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide:
+                        const BorderSide(color: AppColors.border)),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide:
+                        const BorderSide(color: AppColors.border)),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                        color: AppColors.primary, width: 1.5)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 50,
+            child: ElevatedButton(
+              onPressed: _offLoading ? null : _offConnect,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    AppColors.primary.withAlpha(100),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                elevation: 0,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              child: _offLoading
+                  ? const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Text('Kirish',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13)),
+            ),
+          ),
+        ]),
+
+        if (_offError != null) ...[
+          const SizedBox(height: 12),
+          _errorBox(_offError!),
         ],
-      ),
+
+        if (_staff.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          ..._staff
+              .map((s) => _staffCard(s as Map<String, dynamic>)),
+        ],
+      ],
     );
   }
 
