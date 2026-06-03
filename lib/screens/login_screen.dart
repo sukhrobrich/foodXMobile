@@ -203,7 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
           _toInt(user['id']),
           (user['name'] ?? '').toString(),
           (user['role'] ?? '').toString());
-      Api.resetActiveBase();
+      Api.setActiveBase(_connectedUrl!);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const TablesScreen()));

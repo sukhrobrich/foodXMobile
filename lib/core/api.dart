@@ -31,6 +31,7 @@ class Api {
   }
 
   static void resetActiveBase() => _activeBase = null;
+  static void setActiveBase(String url) => _activeBase = url;
   static String? get activeBaseUrl => _activeBase;
 
   // Asosiy serverga ulanish borligini tekshiradi (4 soniya)
