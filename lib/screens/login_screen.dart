@@ -211,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: TextFormField(
                             controller: _cafeCtrl,
                             textInputAction: TextInputAction.search,
-                            onSubmitted: (_) => _checkCafe(),
+                            onFieldSubmitted: (_) => _checkCafe(),
                             onChanged: (_) => setState(() {
                               _tenantId   = null;
                               _cafeName   = null;

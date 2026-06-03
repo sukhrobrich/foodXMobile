@@ -2,7 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class AppConfig {
   // Markaziy server manzili
-  static const centralUrl = 'http://192.168.35.230:5050';
+  static const centralUrl = 'http://195.158.24.155:5050';
 
   static const _keyBaseUrl   = 'base_url';
   static const _keyLocalUrl  = 'local_url';   // Windows PC offline URL
