@@ -18,11 +18,51 @@ class TablesScreen extends StatefulWidget {
 class _TablesScreenState extends State<TablesScreen> {
   int    _navIndex = 0;
   String _userRole = '';
+  Timer? _heartbeatTimer;
 
   @override
   void initState() {
     super.initState();
     _loadRole();
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _checkPcOnline(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _heartbeatTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkPcOnline() async {
+    try {
+      final res = await Api.get('auth/heartbeat');
+      final online = res['online'] as bool? ?? true;
+      if (!online && mounted) _forceLogout();
+    } catch (_) {}
+  }
+
+  void _forceLogout() async {
+    _heartbeatTimer?.cancel();
+    await AppConfig.logout();
+    Api.resetActiveBase();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Asosiy kompyuter offline bo\'ldi. Qayta kiring.',
+          style: TextStyle(fontSize: 13),
+        ),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _loadRole() async {
