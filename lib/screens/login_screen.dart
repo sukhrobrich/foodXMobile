@@ -106,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final hasLocal = (await AppConfig.getLocalUrl())?.isNotEmpty == true;
       setState(() {
         _cafeError = (e.statusCode == 404)
-            ? 'Kafe topilmadi. Nomni to\'g\'ri kiriting.'
+            ? 'Bunday kafe mavjud emas.'
             : (e.statusCode != null)
                 ? e.message
                 : hasLocal
@@ -626,83 +626,42 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Offline kontent ───────────────────────────────────
   Widget _buildOfflineContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // IP kirish
-        Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _ipCtrl,
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _offConnect(),
-              decoration: InputDecoration(
-                hintText: '192.168.1.100',
-                hintStyle: const TextStyle(
-                    color: AppColors.textMuted, fontSize: 13),
-                prefixIcon: const Icon(Icons.computer_outlined,
-                    color: AppColors.textMuted, size: 20),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 14),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
-                enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide:
-                        const BorderSide(color: AppColors.border)),
-                focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                        color: AppColors.primary, width: 1.5)),
-              ),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFB300).withAlpha(120)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.wifi_off_rounded,
+              color: Color(0xFFFF8F00), size: 28),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Asosiy kompyuter faol emas',
+                  style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF7B4F00)),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'Kechirasiz, hozirda asosiy kompyuteringiz '
+                  '(online emas) faol holatda emas.',
+                  style: TextStyle(
+                      fontSize: 13, color: Color(0xFF7B5800)),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-          SizedBox(
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _offLoading ? null : _offConnect,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor:
-                    AppColors.primary.withAlpha(100),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-                elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16),
-              ),
-              child: _offLoading
-                  ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                  : const Text('Ulanish',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13)),
-            ),
-          ),
-        ]),
-
-        if (_offError != null) ...[
-          const SizedBox(height: 12),
-          _errorBox(_offError!),
         ],
-
-        // Ofitsiantlar ro'yxati
-        if (_staff.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          ..._staff
-              .map((s) => _staffCard(s as Map<String, dynamic>)),
-        ],
-      ],
+      ),
     );
   }
 
