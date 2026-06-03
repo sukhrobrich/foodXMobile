@@ -198,4 +198,47 @@ class Api {
       return false;
     }
   }
+
+  // Mahalliy tarmoq: xodimlar ro'yxatini olish (autentifikatsiyasiz)
+  static Future<Map<String, dynamic>> getStaffList(String baseUrl) async {
+    final clean = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    try {
+      final res = await http
+          .get(Uri.parse('$clean/api/auth/staff-list'))
+          .timeout(const Duration(seconds: 8));
+      return _parse(res) as Map<String, dynamic>;
+    } on ApiException {
+      rethrow;
+    } on SocketException {
+      throw ApiException('Serverga ulanib bo\'lmadi. IP manzilni tekshiring.');
+    } on TimeoutException {
+      throw ApiException('Server javob bermadi. IP manzilni tekshiring.');
+    } catch (_) {
+      throw ApiException('Ulanishda xatolik yuz berdi.');
+    }
+  }
+
+  // Mahalliy tarmoq: parolsiz tezkor kirish (faqat local IP dan ishlaydi)
+  static Future<Map<String, dynamic>> quickLogin(
+      String baseUrl, int userId, int tenantId) async {
+    final clean = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$clean/api/auth/quick-login'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'userId': userId, 'tenantId': tenantId}),
+          )
+          .timeout(const Duration(seconds: 8));
+      return _parse(res) as Map<String, dynamic>;
+    } on ApiException {
+      rethrow;
+    } on SocketException {
+      throw ApiException('Ulanib bo\'lmadi.');
+    } on TimeoutException {
+      throw ApiException('Server javob bermadi.');
+    } catch (_) {
+      throw ApiException('Ulanishda xatolik.');
+    }
+  }
 }

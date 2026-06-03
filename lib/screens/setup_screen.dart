@@ -11,14 +11,12 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  final _formKey    = GlobalKey<FormState>();
-  final _urlCtrl    = TextEditingController(); // Asosiy server (base_url)
-  final _localCtrl  = TextEditingController(); // WiFi fallback (local_url)
+  final _formKey   = GlobalKey<FormState>();
+  final _localCtrl = TextEditingController();
 
   bool    _loading   = false;
   String? _statusMsg;
   bool    _statusOk  = false;
-  bool    _isCustom  = false;
 
   @override
   void initState() {
@@ -26,54 +24,61 @@ class _SetupScreenState extends State<SetupScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _localCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    final custom   = await AppConfig.isUsingCustomUrl();
-    final url      = await AppConfig.getBaseUrl();
     final localUrl = await AppConfig.getLocalUrl();
-    setState(() {
-      _isCustom        = custom;
-      _urlCtrl.text    = url; // har doim ko'rsatamiz
-      if (localUrl != null && localUrl.isNotEmpty)
-        _localCtrl.text = localUrl;
-    });
+    if (localUrl != null && localUrl.isNotEmpty) {
+      final uri = Uri.tryParse(localUrl);
+      setState(() => _localCtrl.text = uri?.host ?? localUrl);
+    }
   }
 
   String _normalize(String raw) {
     final s = raw.trim();
     if (s.isEmpty) return s;
     if (s.startsWith('http://') || s.startsWith('https://')) return s;
-    return 'http://$s';
+    return 'http://$s:5050';
   }
 
   Future<void> _test() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _statusMsg = null; });
-    final tid      = await AppConfig.getTenantId();
-    final primary  = _normalize(_urlCtrl.text);
+
     final localRaw = _localCtrl.text.trim();
     final local    = localRaw.isNotEmpty ? _normalize(localRaw) : null;
 
-    final okPrimary = await Api.testConnection(primary, tid);
-    final okLocal   = local != null ? await Api.testConnection(local, tid) : null;
+    if (local == null) {
+      setState(() {
+        _loading   = false;
+        _statusOk  = false;
+        _statusMsg = 'IP manzil kiriting.';
+      });
+      return;
+    }
 
-    setState(() {
-      _loading = false;
-      if (okPrimary) {
+    try {
+      await Api.getStaffList(local);
+      setState(() {
+        _loading   = false;
         _statusOk  = true;
-        _statusMsg = '✓ Asosiy server ulandi: $primary';
-      } else if (okLocal == true) {
-        _statusOk  = true;
-        _statusMsg = '✓ Wi-Fi server ulandi: $local';
-      } else {
+        _statusMsg = '✓ Ulandi: $local';
+      });
+    } catch (_) {
+      setState(() {
+        _loading   = false;
         _statusOk  = false;
         _statusMsg = 'Ulanib bo\'lmadi. IP va port tekshiring.';
-      }
-    });
+      });
+    }
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    await AppConfig.setBaseUrl(_normalize(_urlCtrl.text));
     final localRaw = _localCtrl.text.trim();
     if (localRaw.isNotEmpty) {
       await AppConfig.setLocalUrl(_normalize(localRaw));
@@ -85,8 +90,7 @@ class _SetupScreenState extends State<SetupScreen> {
     Navigator.of(context).pop();
   }
 
-  Future<void> _resetToDefault() async {
-    await AppConfig.resetToDefault();
+  Future<void> _clear() async {
     await AppConfig.clearLocalUrl();
     Api.resetActiveBase();
     if (!mounted) return;
@@ -125,18 +129,21 @@ class _SetupScreenState extends State<SetupScreen> {
                   decoration: BoxDecoration(
                     color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.primary.withAlpha(60)),
+                    border: Border.all(
+                        color: AppColors.primary.withAlpha(60)),
                   ),
                   child: const Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline, color: AppColors.primary, size: 18),
+                      Icon(Icons.info_outline,
+                          color: AppColors.primary, size: 18),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Asosiy server manzilini kiriting. '
-                          'U javob bermasa, Wi-Fi (kompyuter IP) ga avtomatik ulanadi.',
-                          style: TextStyle(fontSize: 12, color: AppColors.primary),
+                          'Kompyuter bilan bir xil Wi-Fi tarmog\'ida bo\'lganingizda '
+                          'mahalliy IP kiritib tezroq ishlashingiz mumkin.',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.primary),
                         ),
                       ),
                     ],
@@ -144,58 +151,18 @@ class _SetupScreenState extends State<SetupScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // ── Asosiy server ─────────────────────────────────────────
-                const Text('Asosiy server manzili',
+                // Mahalliy IP maydoni
+                const Text('Kompyuter IP manzili',
                     style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppColors.textMuted)),
-                const SizedBox(height: 6),
-                TextFormField(
-                  controller: _urlCtrl,
-                  keyboardType: TextInputType.url,
-                  decoration: InputDecoration(
-                    hintText: '192.168.35.230:5050',
-                    hintStyle: const TextStyle(
-                        color: AppColors.textMuted, fontSize: 13),
-                    prefixIcon: const Icon(Icons.cloud_outlined,
-                        color: AppColors.textMuted, size: 20),
-                    filled: true,
-                    fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 14),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppColors.border)),
-                    enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppColors.border)),
-                    focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(
-                            color: AppColors.primary, width: 1.5)),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Manzil kiriting' : null,
-                ),
-                const SizedBox(height: 20),
-
-                // ── Wi-Fi / Kompyuter IP ──────────────────────────────────
-                const Text('Wi-Fi server manzili (ixtiyoriy)',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textMuted)),
-                const SizedBox(height: 4),
-                const Text(
-                    'Asosiy server javob bermasa, kompyuter bilan bir xil Wi-Fi da bo\'lib ulanish.',
-                    style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
                 const SizedBox(height: 6),
                 TextFormField(
                   controller: _localCtrl,
                   keyboardType: TextInputType.url,
                   decoration: InputDecoration(
-                    hintText: '192.168.35.252:5050',
+                    hintText: '192.168.1.100',
                     hintStyle: const TextStyle(
                         color: AppColors.textMuted, fontSize: 13),
                     prefixIcon: const Icon(Icons.computer_outlined,
@@ -206,10 +173,12 @@ class _SetupScreenState extends State<SetupScreen> {
                         horizontal: 14, vertical: 14),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppColors.border)),
+                        borderSide:
+                            const BorderSide(color: AppColors.border)),
                     enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: AppColors.border)),
+                        borderSide:
+                            const BorderSide(color: AppColors.border)),
                     focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(
@@ -222,7 +191,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 Wrap(spacing: 8, children: [
                   for (final ip in ['192.168.35', '192.168.1', '192.168.0'])
                     ActionChip(
-                      label: Text('$ip.x:5050',
+                      label: Text('$ip.x',
                           style: const TextStyle(fontSize: 11)),
                       backgroundColor: AppColors.bg,
                       side: const BorderSide(color: AppColors.border),
@@ -232,7 +201,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 ]),
                 const SizedBox(height: 20),
 
-                // Status xabar
+                // Status xabari
                 if (_statusMsg != null) ...[
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -275,7 +244,8 @@ class _SetupScreenState extends State<SetupScreen> {
                       onPressed: _loading ? null : _test,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primary),
+                        side:
+                            const BorderSide(color: AppColors.primary),
                         padding:
                             const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
@@ -283,8 +253,7 @@ class _SetupScreenState extends State<SetupScreen> {
                       ),
                       icon: _loading
                           ? const SizedBox(
-                              width: 16,
-                              height: 16,
+                              width: 16, height: 16,
                               child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: AppColors.primary))
@@ -308,30 +277,29 @@ class _SetupScreenState extends State<SetupScreen> {
                       ),
                       icon: const Icon(Icons.save_outlined, size: 16),
                       label: const Text('Saqlash',
-                          style: TextStyle(fontWeight: FontWeight.bold,
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
                               fontSize: 13)),
                     ),
                   ),
                 ]),
 
-                // Default ga qaytish
-                if (_isCustom) ...[
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: TextButton.icon(
-                      onPressed: _resetToDefault,
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.danger,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      icon: const Icon(Icons.cloud_outlined, size: 16),
-                      label: const Text(
-                          'Default sozlamalarga qaytish',
-                          style: TextStyle(fontSize: 13)),
+                // Tozalash
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: _clear,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textMuted,
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 14),
                     ),
+                    icon: const Icon(Icons.clear, size: 16),
+                    label: const Text('Mahalliy IP ni o\'chirish',
+                        style: TextStyle(fontSize: 13)),
                   ),
-                ],
+                ),
               ],
             ),
           ),
