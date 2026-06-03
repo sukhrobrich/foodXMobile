@@ -218,6 +218,34 @@ class Api {
     }
   }
 
+  // Mahalliy tarmoq: to'g'ridan-to'g'ri login (berilgan URL ga)
+  static Future<Map<String, dynamic>> loginDirect(
+      String baseUrl, String login, String password, int tenantId) async {
+    final clean = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$clean/api/auth/login'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'login': login,
+              'password': password,
+              'tenantId': tenantId,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+      return _parse(res) as Map<String, dynamic>;
+    } on ApiException {
+      rethrow;
+    } on SocketException {
+      throw ApiException('Serverga ulanib bo\'lmadi.');
+    } on TimeoutException {
+      throw ApiException('Server javob bermadi.');
+    } catch (_) {
+      throw ApiException('Ulanishda xatolik.');
+    }
+  }
+
   // Mahalliy tarmoq: parolsiz tezkor kirish (faqat local IP dan ishlaydi)
   static Future<Map<String, dynamic>> quickLogin(
       String baseUrl, int userId, int tenantId) async {
