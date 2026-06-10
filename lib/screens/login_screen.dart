@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/api.dart';
 import '../core/config.dart';
+import '../models/place.dart';
 import 'tables_screen.dart';
+import 'menu_screen.dart';
 import 'setup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -131,16 +133,37 @@ class _LoginScreenState extends State<LoginScreen> {
         'password': _passCtrl.text,
         'tenantId': _tenantId!,
       });
+      final type = (res['type'] ?? 'staff') as String;
       await AppConfig.setToken(res['token'] as String);
       await AppConfig.setTenantId(_tenantId!);
-      final user = res['user'] as Map<String, dynamic>;
-      await AppConfig.saveUser(
-          _toInt(user['id']),
-          (user['name'] ?? '').toString(),
-          (user['role'] ?? '').toString());
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const TablesScreen()));
+
+      if (type == 'customer') {
+        final cust = res['customer'] as Map<String, dynamic>;
+        await AppConfig.saveUser(
+            _toInt(cust['id']),
+            (cust['name'] ?? '').toString(),
+            'customer');
+        if (!mounted) return;
+        final place = Place(
+          id: 0,
+          name: (cust['name'] ?? 'Mijoz').toString(),
+          zone: 'Mijoz',
+          empty: true,
+          activeOrderUserName: '',
+          activeOrderTotal: 0,
+        );
+        Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => MenuScreen(place: place)));
+      } else {
+        final user = res['user'] as Map<String, dynamic>;
+        await AppConfig.saveUser(
+            _toInt(user['id']),
+            (user['name'] ?? '').toString(),
+            (user['role'] ?? '').toString());
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const TablesScreen()));
+      }
     } on ApiException catch (e) {
       setState(() => _loginError =
           e.statusCode == 401 ? 'Login yoki parol noto\'g\'ri' : e.message);

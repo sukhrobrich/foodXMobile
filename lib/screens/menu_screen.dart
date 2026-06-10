@@ -97,7 +97,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
           .map((j) => Food.fromJson(j as Map<String, dynamic>))
           .toList();
 
-      if (widget.place.activeOrderId != null) {
+      // Mijoz rejimida (place.id==0) eski buyurtma tekshirilmaydi
+      if (widget.place.id != 0 && widget.place.activeOrderId != null) {
         _existingOrderId = widget.place.activeOrderId;
         await _fetchOrderItems();
       }
@@ -235,10 +236,12 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       if (_existingOrderId != null) {
         await Api.put('orders/$_existingOrderId/items', {'items': items});
       } else {
-        final res = await Api.post('orders', {
-          'placeId': widget.place.id,
+        final body = <String, dynamic>{
+          'placeId': widget.place.id == 0 ? null : widget.place.id,
           'items':   items,
-        });
+        };
+        if (widget.place.id == 0) body['isCustomerOrder'] = true;
+        final res = await Api.post('orders', body);
         _existingOrderId = res['id'] as int?;
       }
       if (!mounted) return;
@@ -271,8 +274,11 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Stol: ${widget.place.name}',
-                    style: const TextStyle(color: AppColors.textMuted)),
+                Text(
+                  widget.place.id == 0
+                      ? 'Mijoz buyurtmasi: ${widget.place.name}'
+                      : 'Stol: ${widget.place.name}',
+                  style: const TextStyle(color: AppColors.textMuted)),
                 const SizedBox(height: 8),
                 ..._order.map((i) => Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
