@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../core/colors.dart';
 import '../core/config.dart';
+import '../models/place.dart';
 import 'login_screen.dart';
+import 'menu_screen.dart';
 import 'tables_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -23,7 +25,19 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     final loggedIn = await AppConfig.isLoggedIn();
-    _go(loggedIn ? const TablesScreen() : const LoginScreen());
+    if (!loggedIn) { _go(const LoginScreen()); return; }
+
+    final role = (await AppConfig.getUserRole()) ?? '';
+    if (role == 'customer') {
+      final name = (await AppConfig.getUserName()) ?? 'Mijoz';
+      final place = Place(
+        id: 0, name: name, zone: 'Mijoz',
+        empty: true, activeOrderUserName: '', activeOrderTotal: 0,
+      );
+      _go(MenuScreen(place: place));
+    } else {
+      _go(const TablesScreen());
+    }
   }
 
   void _go(Widget screen) {

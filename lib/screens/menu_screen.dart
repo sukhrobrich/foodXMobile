@@ -9,6 +9,7 @@ import '../models/food_category.dart';
 import '../models/order_item.dart';
 import 'order_detail_sheet.dart';
 import 'my_orders_screen.dart' show MyOrdersScreen, MyOrdersScreenState;
+import 'login_screen.dart';
 
 class MenuScreen extends StatefulWidget {
   final Place place;
@@ -354,6 +355,39 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
     OrderDetailSheet.show(context, orderId: _existingOrderId!);
   }
 
+  Future<void> _doLogout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('Chiqish', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('Tizimdan chiqmoqchimisiz?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Bekor', style: TextStyle(color: AppColors.textMuted)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Chiqish', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await AppConfig.logout();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.place.id == 0) return _buildCustomerScaffold();
@@ -366,12 +400,19 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: const BackButton(color: AppColors.textDark),
+        automaticallyImplyLeading: false,
         title: Text(widget.place.name,
             style: const TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
                 color: AppColors.textDark)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: AppColors.textMuted, size: 22),
+            tooltip: 'Chiqish',
+            onPressed: _doLogout,
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: AppColors.border),
