@@ -8,6 +8,7 @@ import '../models/food.dart';
 import '../models/food_category.dart';
 import '../models/order_item.dart';
 import 'order_detail_sheet.dart';
+import 'my_orders_screen.dart' show MyOrdersScreen, MyOrdersScreenState;
 
 class MenuScreen extends StatefulWidget {
   final Place place;
@@ -34,6 +35,10 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
   // Ruxsat sozlamalari
   String  _userRole  = '';
   bool    _canDelete = false;
+
+  // Mijoz rejimi uchun tab
+  int     _tabIndex  = 0;
+  final   _ordersKey = GlobalKey<MyOrdersScreenState>();
 
   Timer?  _timer;
 
@@ -255,7 +260,9 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         setState(() {
           _order.clear();
           _savedQty.clear();
+          _existingOrderId = null;
         });
+        _ordersKey.currentState?.silentRefresh();
       } else {
         Navigator.of(context).pop();
       }
@@ -349,6 +356,207 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.place.id == 0) return _buildCustomerScaffold();
+    return _buildStaffScaffold();
+  }
+
+  Widget _buildCustomerScaffold() {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: const BackButton(color: AppColors.textDark),
+        title: Text(widget.place.name,
+            style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: AppColors.textDark)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: AppColors.border),
+        ),
+      ),
+      body: IndexedStack(index: _tabIndex, children: [
+        _buildMenuContent(),
+        MyOrdersScreen(key: _ordersKey, showAppBar: false),
+      ]),
+      bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
+        if (_tabIndex == 0 && _total2 > 0) _buildCartBar(),
+        Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: AppColors.border)),
+          ),
+          child: BottomNavigationBar(
+            currentIndex: _tabIndex,
+            onTap: (i) {
+              setState(() => _tabIndex = i);
+              if (i == 1) _ordersKey.currentState?.silentRefresh();
+            },
+            selectedItemColor: AppColors.primary,
+            unselectedItemColor: AppColors.textMuted,
+            backgroundColor: Colors.white,
+            elevation: 0,
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.restaurant_menu_outlined),
+                activeIcon: Icon(Icons.restaurant_menu),
+                label: 'Menyu',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.receipt_long_outlined),
+                activeIcon: Icon(Icons.receipt_long),
+                label: 'Buyurtmalarim',
+              ),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildMenuContent() {
+    return _loading
+        ? const Center(
+            child: CircularProgressIndicator(color: AppColors.primary))
+        : _error != null
+            ? _buildError()
+            : Column(children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: TextField(
+                    onChanged: (v) => setState(() => _search = v),
+                    decoration: InputDecoration(
+                      hintText: 'Taom qidirish...',
+                      hintStyle: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 13),
+                      prefixIcon: const Icon(Icons.search,
+                          color: AppColors.textMuted, size: 20),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppColors.border)),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(color: AppColors.border)),
+                      focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: const BorderSide(
+                              color: AppColors.primary, width: 1.5)),
+                    ),
+                  ),
+                ),
+                if (_categories.isNotEmpty)
+                  SizedBox(
+                    height: 44,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      children: [
+                        _catChip('Barchasi', null),
+                        ..._categories.map((c) => _catChip(c.name, c.id)),
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child: _filtered.isEmpty
+                      ? const Center(
+                          child: Text('Taomlar topilmadi',
+                              style: TextStyle(color: AppColors.textMuted)))
+                      : ListView.builder(
+                          padding:
+                              const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                          itemCount: _filtered.length,
+                          itemBuilder: (ctx, i) => _FoodRow(
+                            food:     _filtered[i],
+                            qty:      _qty(_filtered[i]),
+                            onAdd:    () => _increment(_filtered[i]),
+                            onRemove: () => _decrement(_filtered[i]),
+                          ),
+                        ),
+                ),
+              ]);
+  }
+
+  Widget _buildCartBar() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: Row(children: [
+          Container(
+            height: 48,
+            margin: const EdgeInsets.only(right: 10),
+            child: OutlinedButton.icon(
+              onPressed: _showReceipt,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.textDark,
+                side: const BorderSide(color: AppColors.border),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+              icon: const Icon(Icons.info_outline, size: 18),
+              label: const Text('Batafsil',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('$_total2 ta taom',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textMuted)),
+                Text('${_total.toStringAsFixed(0)} so\'m',
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark)),
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _saving ? null : _saveOrder,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+              ),
+              icon: _saving
+                  ? const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.check, size: 20),
+              label: Text(
+                  _saving ? 'Saqlanmoqda...' : 'Saqlash',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 15)),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildStaffScaffold() {
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: AppBar(
@@ -413,150 +621,8 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
             ),
         ],
       ),
-      body: _loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.primary))
-          : _error != null
-              ? _buildError()
-              : Column(children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: TextField(
-                      onChanged: (v) => setState(() => _search = v),
-                      decoration: InputDecoration(
-                        hintText: 'Taom qidirish...',
-                        hintStyle: const TextStyle(
-                            color: AppColors.textMuted, fontSize: 13),
-                        prefixIcon: const Icon(Icons.search,
-                            color: AppColors.textMuted, size: 20),
-                        filled: true,
-                        fillColor: Colors.white,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                                color: AppColors.border)),
-                        enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                                color: AppColors.border)),
-                        focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                                color: AppColors.primary, width: 1.5)),
-                      ),
-                    ),
-                  ),
-                  if (_categories.isNotEmpty)
-                    SizedBox(
-                      height: 44,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 6),
-                        children: [
-                          _catChip('Barchasi', null),
-                          ..._categories
-                              .map((c) => _catChip(c.name, c.id)),
-                        ],
-                      ),
-                    ),
-                  Expanded(
-                    child: _filtered.isEmpty
-                        ? const Center(
-                            child: Text('Taomlar topilmadi',
-                                style: TextStyle(
-                                    color: AppColors.textMuted)))
-                        : ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(
-                                16, 8, 16, 100),
-                            itemCount: _filtered.length,
-                            itemBuilder: (ctx, i) => _FoodRow(
-                              food:     _filtered[i],
-                              qty:      _qty(_filtered[i]),
-                              onAdd:    () => _increment(_filtered[i]),
-                              onRemove: () => _decrement(_filtered[i]),
-                            ),
-                          ),
-                  ),
-                ]),
-      bottomNavigationBar: _total2 == 0
-          ? null
-          : Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(top: BorderSide(color: AppColors.border)),
-              ),
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: SafeArea(
-                top: false,
-                child: Row(children: [
-                  // Shot tugmasi
-                  Container(
-                    height: 48,
-                    margin: const EdgeInsets.only(right: 10),
-                    child: OutlinedButton.icon(
-                      onPressed: _showReceipt,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textDark,
-                        side: const BorderSide(color: AppColors.border),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                      ),
-                      icon: const Icon(Icons.info_outline, size: 18),
-                      label: const Text('Batafsil',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 13)),
-                    ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('$_total2 ta taom',
-                            style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.textMuted)),
-                        Text('${_total.toStringAsFixed(0)} so\'m',
-                            style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textDark)),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _saving ? null : _saveOrder,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24),
-                      ),
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 18, height: 18,
-                              child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2))
-                          : const Icon(Icons.check, size: 20),
-                      label: Text(
-                          _saving ? 'Saqlanmoqda...' : 'Saqlash',
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15)),
-                    ),
-                  ),
-                ]),
-              ),
-            ),
+      body: _buildMenuContent(),
+      bottomNavigationBar: _total2 == 0 ? null : _buildCartBar(),
     );
   }
 

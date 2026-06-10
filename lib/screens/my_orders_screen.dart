@@ -6,16 +6,17 @@ import '../core/api.dart';
 import 'order_detail_sheet.dart';
 
 class MyOrdersScreen extends StatefulWidget {
-  const MyOrdersScreen({super.key});
+  final bool showAppBar;
+  const MyOrdersScreen({super.key, this.showAppBar = true});
 
-  static final instanceKey = GlobalKey<_MyOrdersScreenState>();
+  static final instanceKey = GlobalKey<MyOrdersScreenState>();
   static void refreshIfMounted() => instanceKey.currentState?._silentRefresh();
 
   @override
-  State<MyOrdersScreen> createState() => _MyOrdersScreenState();
+  State<MyOrdersScreen> createState() => MyOrdersScreenState();
 }
 
-class _MyOrdersScreenState extends State<MyOrdersScreen>
+class MyOrdersScreenState extends State<MyOrdersScreen>
     with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
 
   List<_Order> _orders      = [];
@@ -82,6 +83,8 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
     await _fetch();
     if (mounted) setState(() => _refreshing = false);
   }
+
+  void silentRefresh() => _silentRefresh();
 
   Future<void> _fetch() async {
     try {
@@ -225,7 +228,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
     super.build(context);
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(
+      appBar: widget.showAppBar ? AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
         automaticallyImplyLeading: false,
@@ -251,7 +254,7 @@ class _MyOrdersScreenState extends State<MyOrdersScreen>
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: AppColors.border),
         ),
-      ),
+      ) : null,
       body: Column(
         children: [
           // ── Sana tanlash ────────────────────────────────────────────
