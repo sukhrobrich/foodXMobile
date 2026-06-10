@@ -250,7 +250,15 @@ class _MenuScreenState extends State<MenuScreen> with WidgetsBindingObserver {
         backgroundColor: AppColors.success,
         duration: Duration(seconds: 2),
       ));
-      Navigator.of(context).pop();
+      // Mijoz rejimida (place.id==0) pop qilish o'rniga savatchani tozalaymiz
+      if (widget.place.id == 0) {
+        setState(() {
+          _order.clear();
+          _savedQty.clear();
+        });
+      } else {
+        Navigator.of(context).pop();
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
